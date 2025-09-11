@@ -58,7 +58,7 @@ Isosmfar is a lightweight **single-page application (SPA)** built with standard 
 - **[Nominatim](https://nominatim.org/)** – for name autocompletion
 - **[OpenStreetMap tiles](https://www.openstreetmap.org/)** – for basemap backgrounds
 
-No build system, no external dependencies beyond the included libraries. The app is fully self-contained.
+No build system, no external dependencies beyond the included libraries. The app is fully self-contained - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services. I love Openstreetmap !
 
 ---
 
@@ -84,21 +84,6 @@ No build system, no external dependencies beyond the included libraries. The app
 
 6. **Export your result**  
    Click *Export PNG* to save the current map view with the distance overlay.
-
----
-
-## 🙏 Acknowledgments
-
-This project would not exist without the amazing open data and open-source ecosystem:
-
-- **[OpenStreetMap](https://www.openstreetmap.org/)** – the free and editable map of the world  
-- **[Overpass API](https://overpass-api.de/)** – powerful querying of OSM data and boundaries  
-- **[Nominatim](https://nominatim.org/)** – open geocoding and search autocompletion  
-- **[Leaflet](https://leafletjs.com/)** – intuitive interactive maps  
-- **[Turf.js](https://turfjs.org/)** – modular geospatial analysis in JavaScript  
-- **[Chroma.js](https://gka.github.io/chroma.js/)** – color scales for data visualization  
-
-A big thank you to the contributors and communities behind these tools and datasets.
 
 ---
 
