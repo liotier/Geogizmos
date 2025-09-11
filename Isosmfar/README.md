@@ -4,7 +4,7 @@
 
 👉 [Try it now – Isosmfar online](https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html)
 
-
+![screenshot](Screenshot%202025-09-11%20at%2017-23-08%20Isosmfar%20-%20OSM%20Distance%20Fields.png)
 
 ---
 
