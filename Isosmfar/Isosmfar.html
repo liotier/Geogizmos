@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isosmfar - OSM Distance Fields</title>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #3498db;
+            --accent: #e74c3c;
+            --success: #27ae60;
+            --border: #dfe4ea;
+            --bg-light: #f8f9fa;
+            --text: #2c3e50;
+            --text-light: #6c757d;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: var(--text);
+            background: white;
+            overflow: hidden;
+        }
+        
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+        
+        #sidebar {
+            width: 320px;
+            background: white;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        
+        #header {
+            padding: 20px;
+            border-bottom: 2px solid var(--secondary);
+        }
+        
+        #header h1 {
+            font-size: 24px;
+            color: var(--primary);
+            margin: 0;
+        }
+        
+        #header .subtitle {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-top: 4px;
+        }
+        
+        #controls {
+            padding: 20px;
+            flex: 1;
+        }
+        
+        .control-group {
+            margin-bottom: 20px;
+        }
+        
+        .control-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+        
+        input[type="text"], select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+        }
+        
+        input[type="text"]:focus, select:focus {
+            outline: none;
+            border-color: var(--secondary);
+        }
+        
+        .help-text {
+            font-size: 11px;
+            color: var(--text-light);
+            margin-top: 4px;
+        }
+        
+        .help-text a {
+            color: var(--secondary);
+            text-decoration: none;
+        }
+        
+        .help-text a:hover {
+            text-decoration: underline;
+        }
+        
+        .help-text .tooltip {
+            cursor: help;
+            border-bottom: 1px dotted var(--text-light);
+        }
+        
+        button {
+            padding: 10px 16px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        button:hover:not(:disabled) {
+            background: var(--bg-light);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        button.primary {
+            background: var(--secondary);
+            color: white;
+            border-color: var(--secondary);
+        }
+        
+        button.primary:hover:not(:disabled) {
+            background: #2980b9;
+        }
+        
+        /* Slider styles */
+        .slider-container {
+            margin: 15px 0;
+            position: relative;
+        }
+        
+        .slider-label {
+            font-size: 12px;
+            margin-bottom: 5px;
+            display: block;
+            cursor: help;
+        }
+        
+        .slider-track {
+            position: relative;
+            height: 4px;
+            background: linear-gradient(to right, 
+                var(--secondary) 0%, 
+                var(--success) 50%, 
+                var(--accent) 100%);
+            border-radius: 2px;
+            margin: 10px 0;
+        }
+        
+        .slider-cursor {
+            position: absolute;
+            top: -8px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border: 2px solid var(--accent);
+            border-radius: 50%;
+            cursor: grab;
+            transform: translateX(-50%);
+            transition: box-shadow 0.2s;
+        }
+        
+        .slider-cursor:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        
+        .slider-cursor:active {
+            cursor: grabbing;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+        
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-light);
+        }
+        
+        .slider-value {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 12px;
+            padding: 2px 6px;
+            background: var(--bg-light);
+            border-radius: 3px;
+            display: inline-block;
+        }
+        
+        #map-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #status {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(44, 62, 80, 0.95);
+            color: white;
+            padding: 12px 20px;
+            display: none;
+        }
+        
+        #status.active {
+            display: block;
+        }
+        
+        #progress-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        
+        #progress-fill {
+            height: 100%;
+            background: var(--success);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            margin-top: 4px;
+        }
+        
+        .dropdown.active {
+            display: block;
+        }
+        
+        .dropdown-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--bg-light);
+        }
+        
+        .dropdown-item:hover {
+            background: var(--bg-light);
+        }
+        
+        .dropdown-item:last-child {
+            border-bottom: none;
+        }
+        
+        .area-input-container {
+            position: relative;
+        }
+        
+        .message {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .error-message {
+            background: #f8d7da;
+            border-left: 3px solid var(--accent);
+        }
+        
+        .info-message {
+            background: #d1ecf1;
+            border-left: 3px solid #0c5460;
+        }
+        
+        .warning-message {
+            background: #fff3cd;
+            border-left: 3px solid #ffc107;
+        }
+        
+        .stats {
+            background: var(--bg-light);
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        
+        .stats div {
+            margin: 4px 0;
+        }
+        
+        .credits {
+            font-size: 11px;
+            color: var(--text-light);
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .credits a {
+            color: var(--secondary);
+            text-decoration: none;
+        }
+        
+        .credits a:hover {
+            text-decoration: underline;
+        }
+        
+        .advanced-controls {
+            background: var(--bg-light);
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+        
+        /* Better attribution styling */
+        .maplibregl-ctrl-attrib {
+            background: rgba(255, 255, 255, 0.3) !important;
+        }
+        
+        /* Tooltip */
+        .tooltip {
+            position: relative;
+            cursor: help;
+        }
+        
+        .tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            font-size: 11px;
+            border-radius: 3px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            margin-bottom: 5px;
+            z-index: 1000;
+        }
+        
+        .tooltip:hover::after {
+            opacity: 1;
+        }
+        
+        /* Color palette selector styles */
+        .palette-selector-container {
+            position: relative;
+        }
+        
+        .palette-selected {
+            display: flex;
+            height: 36px;
+            padding: 4px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            background: white;
+        }
+        
+        .palette-selected:hover {
+            border-color: var(--secondary);
+        }
+        
+        .palette-gradient {
+            flex: 1;
+            border-radius: 2px;
+        }
+        
+        .palette-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 4px;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .palette-dropdown.active {
+            display: block;
+        }
+        
+        .palette-option {
+            display: flex;
+            height: 36px;
+            padding: 4px 8px;
+            cursor: pointer;
+        }
+        
+        .palette-option:hover {
+            background: var(--bg-light);
+        }
+        
+        .palette-option .palette-gradient {
+            flex: 1;
+            border-radius: 2px;
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="sidebar">
+            <div id="header">
+                <h1>Isosmfar</h1>
+                <div class="subtitle">Openstreetmap Distance Field Visualization</div>
+            </div>
+            
+            <div id="controls">
+                <div id="messages"></div>
+                
+                <div class="control-group">
+                    <label>Filter query</label>
+                    <input type="text" id="query" value="amenity=hospital" placeholder="e.g., shop=supermarket, leisure=park">
+                    <div class="help-text">
+                        <span class="tooltip" data-tooltip="Try emergency=fire_hydrant or amenity=place_of_worship">key=value</span> - or <a href="https://osm-queries.ldodds.com/syntax-reference.html" target="_blank">Overpass query syntax</a>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label>Geographic area</label>
+                    <div class="area-input-container">
+                        <input type="text" id="area" value="Sierra Leone" placeholder="Type to search...">
+                        <div id="area-results" class="dropdown"></div>
+                    </div>
+                    <div class="help-text">Autocompletion for cities, regions, or countries</div>
+                </div>
+                
+                <div class="control-group">
+                    <label>Background map</label>
+                    <select id="basemap-selector">
+                        <option value="standard">OpenStreetMap Standard</option>
+                        <option value="humanitarian">Humanitarian</option>
+                        <option value="carto-light">Carto Light</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label>Color palette</label>
+                    <div class="palette-selector-container">
+                        <div class="palette-selected" id="palette-selected">
+                            <div class="palette-gradient" id="selected-gradient"></div>
+                        </div>
+                        <div class="palette-dropdown" id="palette-dropdown"></div>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <button id="generate" class="primary">Generate distance field</button>
+                    <button id="export-png" disabled title="Export visualization as PNG image">Export PNG</button>
+                </div>
+                
+                <div class="advanced-controls" id="advanced-controls" style="display: none;">
+                    <label class="slider-label tooltip" data-tooltip="Adjust gradient radius around data points">Gradient radius</label>
+                    <div class="slider-container">
+                        <div class="slider-track" id="distance-slider">
+                            <div class="slider-cursor" id="distance-cursor" style="left: 50%;"></div>
+                        </div>
+                        <div class="slider-labels">
+                            <span>10 m</span>
+                            <span id="max-km-label">100 km</span>
+                        </div>
+                        <div style="text-align: center;">
+                            <span class="slider-value" id="distance-value">50 km</span>
+                        </div>
+                    </div>
+                    
+                    <label class="slider-label tooltip" data-tooltip="Adjust the gradient overlay transparency" style="margin: 15px 0 5px 0;">Transparency</label>
+                    <div class="slider-container">
+                        <div class="slider-track" id="transparency-slider">
+                            <div class="slider-cursor" id="transparency-cursor" style="left: 50%;"></div>
+                        </div>
+                        <div class="slider-labels">
+                            <span>Transparent</span>
+                            <span>Opaque</span>
+                        </div>
+                        <div style="text-align: center;">
+                            <span class="slider-value" id="transparency-value">50%</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="stats" class="stats" style="display: none;">
+                    <div id="feature-count"></div>
+                    <div id="area-size"></div>
+                    <div id="computed-max-distance"></div>
+                    <div class="credits">
+                        <div>Produced by Jean-Marc Liotier</div>
+                        <div><a href="https://github.com/liotier/Geogizmos/tree/main/Isosmfar" target="_blank">View on GitHub</a></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="map-container">
+            <div id="map"></div>
+            <div id="status">
+                <div id="status-text">Ready</div>
+                <div id="progress-bar">
+                    <div id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    
+    <script>
+        class IsosmfarApp {
+            constructor() {
+                this.map = null;
+                this.selectedArea = null;
+                this.lastResults = null;
+                this.searchTimeout = null;
+                
+                // Visualization parameters
+                this.maxDistanceKm = 50;
+                this.maxDistanceLimit = null;
+                this.transparency = 0.5;
+                this.computedMaxDistance = null;
+                
+                // Distance field layer
+                this.distanceFieldLayer = null;
+                
+                // Slider drag state
+                this.draggingCursor = null;
+                
+                // Current basemap
+                this.currentBasemap = 'standard';
+                
+                // Color palettes (9 colors each)
+                this.colorPalettes = {
+                    blue: ['#f7fbff','#deebf7','#c6dbef','#9ecae1','#6baed6','#4292c6','#2171b5','#08519c','#08306b'],
+                    green: ['#f7fcf5','#e5f5e0','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#006d2c','#00441b'],
+                    gray: ['#ffffff','#f0f0f0','#d9d9d9','#bdbdbd','#969696','#737373','#525252','#252525','#000000'],
+                    orange: ['#fff5eb','#fee6ce','#fdd0a2','#fdae6b','#fd8d3c','#f16913','#d94801','#a63603','#7f2704'],
+                    purple: ['#fcfbfd','#efedf5','#dadaeb','#bcbddc','#9e9ac8','#807dba','#6a51a3','#54278f','#3f007d'],
+                    red: ['#fff5f0','#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d']
+                };
+                
+                this.currentPalette = 'blue';
+                this.interpolatedPalettes = {};
+                
+                this.init();
+            }
+            
+            init() {
+                this.interpolatePalettes();
+                this.initPaletteSelector();
+                this.initMap();
+                this.bindEvents();
+                this.initSliderControls();
+            }
+            
+            hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : null;
+            }
+            
+            rgbToHex(r, g, b) {
+                return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+            }
+            
+            interpolateColor(color1, color2, factor) {
+                const c1 = this.hexToRgb(color1);
+                const c2 = this.hexToRgb(color2);
+                const r = Math.round(c1.r + (c2.r - c1.r) * factor);
+                const g = Math.round(c1.g + (c2.g - c1.g) * factor);
+                const b = Math.round(c1.b + (c2.b - c1.b) * factor);
+                return this.rgbToHex(r, g, b);
+            }
+            
+            interpolatePalettes() {
+                for (const [name, palette] of Object.entries(this.colorPalettes)) {
+                    const interpolated = [];
+                    for (let i = 0; i < palette.length - 1; i++) {
+                        interpolated.push(palette[i]);
+                        const midColor = this.interpolateColor(palette[i], palette[i + 1], 0.5);
+                        interpolated.push(midColor);
+                    }
+                    interpolated.push(palette[palette.length - 1]);
+                    this.interpolatedPalettes[name] = interpolated;
+                }
+            }
+            
+            initPaletteSelector() {
+                const dropdown = document.getElementById('palette-dropdown');
+                const selectedDisplay = document.getElementById('selected-gradient');
+                const selectedContainer = document.getElementById('palette-selected');
+                
+                // Create dropdown options with visual gradients
+                for (const [name, palette] of Object.entries(this.colorPalettes)) {
+                    const option = document.createElement('div');
+                    option.className = 'palette-option';
+                    option.dataset.palette = name;
+                    
+                    const gradient = document.createElement('div');
+                    gradient.className = 'palette-gradient';
+                    const colors = palette.map((c, i) => `${c} ${(i / (palette.length - 1)) * 100}%`).join(', ');
+                    gradient.style.background = `linear-gradient(to right, ${colors})`;
+                    
+                    option.appendChild(gradient);
+                    dropdown.appendChild(option);
+                    
+                    option.addEventListener('click', () => {
+                        this.switchPalette(name);
+                        this.updatePaletteDisplay();
+                        dropdown.classList.remove('active');
+                    });
+                }
+                
+                // Set initial display
+                this.updatePaletteDisplay();
+                
+                // Toggle dropdown
+                selectedContainer.addEventListener('click', () => {
+                    dropdown.classList.toggle('active');
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.palette-selector-container')) {
+                        dropdown.classList.remove('active');
+                    }
+                });
+            }
+            
+            updatePaletteDisplay() {
+                const selectedDisplay = document.getElementById('selected-gradient');
+                const palette = this.colorPalettes[this.currentPalette];
+                const colors = palette.map((c, i) => `${c} ${(i / (palette.length - 1)) * 100}%`).join(', ');
+                selectedDisplay.style.background = `linear-gradient(to right, ${colors})`;
+            }
+            
+            initMap() {
+                this.map = new maplibregl.Map({
+                    container: 'map',
+                    preserveDrawingBuffer: true, // Preserve WebGL content for exports
+                    style: {
+                        version: 8,
+                        sources: {
+                            'osm': {
+                                type: 'raster',
+                                tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                                tileSize: 256,
+                                attribution: '© Openstreetmap'
+                            }
+                        },
+                        layers: [{
+                            id: 'osm',
+                            type: 'raster',
+                            source: 'osm'
+                        }]
+                    },
+                    center: [-11.5, 8.5],
+                    zoom: 7
+                });
+                
+                this.map.addControl(new maplibregl.NavigationControl());
+            }
+            
+            switchBasemap(basemapType) {
+                let tiles, attribution;
+                
+                switch(basemapType) {
+                    case 'humanitarian':
+                        tiles = ['https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+                                'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png'];
+                        attribution = '© Openstreetmap';
+                        break;
+                    case 'carto-light':
+                        tiles = ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                                'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'];
+                        attribution = '© Openstreetmap © CARTO';
+                        break;
+                    default: // standard
+                        tiles = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
+                        attribution = '© Openstreetmap';
+                }
+                
+                // Remove old source and layer
+                if (this.map.getLayer('osm')) {
+                    this.map.removeLayer('osm');
+                }
+                if (this.map.getSource('osm')) {
+                    this.map.removeSource('osm');
+                }
+                
+                // Add new source and layer
+                this.map.addSource('osm', {
+                    type: 'raster',
+                    tiles: tiles,
+                    tileSize: 256,
+                    attribution: attribution
+                });
+                
+                // Add the layer at the bottom
+                this.map.addLayer({
+                    id: 'osm',
+                    type: 'raster',
+                    source: 'osm'
+                }, this.map.getLayer('distance-field') ? 'distance-field' : undefined);
+                
+                this.currentBasemap = basemapType;
+            }
+            
+            switchPalette(paletteName) {
+                this.currentPalette = paletteName;
+                if (this.distanceFieldLayer) {
+                    this.updateVisualization();
+                }
+                if (this.map.getLayer('features')) {
+                    // Update point colors
+                    const palette = this.interpolatedPalettes[paletteName];
+                    const pointColor = palette[Math.floor(palette.length * 0.75)]; // Use color from 75% position
+                    this.map.setPaintProperty('features', 'circle-color', '#ffffff');
+                    this.map.setPaintProperty('features', 'circle-stroke-color', pointColor);
+                }
+            }
+            
+            initSliderControls() {
+                const distanceCursor = document.getElementById('distance-cursor');
+                const distanceSlider = document.getElementById('distance-slider');
+                const transparencyCursor = document.getElementById('transparency-cursor');
+                const transparencySlider = document.getElementById('transparency-slider');
+                
+                distanceCursor.addEventListener('mousedown', (e) => {
+                    this.draggingCursor = { cursor: distanceCursor, slider: distanceSlider, type: 'distance' };
+                    e.preventDefault();
+                });
+                
+                transparencyCursor.addEventListener('mousedown', (e) => {
+                    this.draggingCursor = { cursor: transparencyCursor, slider: transparencySlider, type: 'transparency' };
+                    e.preventDefault();
+                });
+                
+                document.addEventListener('mousemove', (e) => {
+                    if (!this.draggingCursor) return;
+                    
+                    const rect = this.draggingCursor.slider.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
+                    
+                    this.draggingCursor.cursor.style.left = percent + '%';
+                    
+                    if (this.draggingCursor.type === 'distance') {
+                        // Use exponential scale for better control at lower values
+                        const logValue = percent / 100;
+                        // Calculate distance with exponential scale, minimum 0.01 km (10 meters)
+                        const calculatedDistance = Math.pow(this.maxDistanceLimit / 0.01, logValue) * 0.01;
+                        this.maxDistanceKm = Math.min(calculatedDistance, this.maxDistanceLimit);
+                        // Round to appropriate precision based on scale
+                        if (this.maxDistanceKm < 1) {
+                            this.maxDistanceKm = Math.round(this.maxDistanceKm * 100) / 100; // 2 decimal places for < 1km
+                        } else {
+                            this.maxDistanceKm = Math.round(this.maxDistanceKm); // whole numbers for >= 1km
+                        }
+                        this.updateSliderValues();
+                        this.updateVisualization();
+                    } else if (this.draggingCursor.type === 'transparency') {
+                        this.transparency = percent / 100;
+                        this.updateSliderValues();
+                        this.updateVisualization();
+                    }
+                });
+                
+                document.addEventListener('mouseup', () => {
+                    this.draggingCursor = null;
+                });
+            }
+            
+            updateSliderValues() {
+                // Display distance with appropriate units
+                let distanceText;
+                if (this.maxDistanceKm < 1) {
+                    distanceText = `${Math.round(this.maxDistanceKm * 1000)} m`;
+                } else {
+                    distanceText = `${Math.round(this.maxDistanceKm)} km`;
+                }
+                document.getElementById('distance-value').textContent = distanceText;
+                document.getElementById('transparency-value').textContent = `${Math.round(this.transparency * 100)}%`;
+            }
+            
+            updateVisualization() {
+                if (!this.distanceFieldLayer) return;
+                
+                this.distanceFieldLayer.maxDistanceKm = this.maxDistanceKm;
+                this.distanceFieldLayer.transparency = this.transparency;
+                this.distanceFieldLayer.currentPalette = this.currentPalette;
+                this.map.triggerRepaint();
+            }
+            
+            bindEvents() {
+                document.getElementById('area').addEventListener('input', (e) => {
+                    clearTimeout(this.searchTimeout);
+                    const query = e.target.value.trim();
+                    
+                    if (query.length < 2) {
+                        this.hideDropdown();
+                        return;
+                    }
+                    
+                    this.searchTimeout = setTimeout(() => {
+                        this.searchArea(query);
+                    }, 300);
+                });
+                
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.area-input-container')) {
+                        this.hideDropdown();
+                    }
+                });
+                
+                document.getElementById('basemap-selector').addEventListener('change', (e) => {
+                    this.switchBasemap(e.target.value);
+                });
+                
+                document.getElementById('generate').addEventListener('click', () => this.generate());
+                document.getElementById('export-png').addEventListener('click', () => this.exportPNG());
+            }
+            
+            async searchArea(query) {
+                try {
+                    const response = await fetch(
+                        `https://nominatim.openstreetmap.org/search?` +
+                        `format=jsonv2&q=${encodeURIComponent(query)}&` +
+                        `limit=10&addressdetails=1`
+                    );
+                    
+                    const results = await response.json();
+                    this.showAreaResults(results);
+                } catch (error) {
+                    console.error('Area search error:', error);
+                }
+            }
+            
+            showAreaResults(results) {
+                const dropdown = document.getElementById('area-results');
+                dropdown.innerHTML = '';
+                
+                if (results.length === 0) {
+                    dropdown.innerHTML = '<div class="dropdown-item">No results found</div>';
+                } else {
+                    results.forEach(result => {
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item';
+                        item.textContent = result.display_name;
+                        item.addEventListener('click', () => {
+                            this.selectArea(result);
+                        });
+                        dropdown.appendChild(item);
+                    });
+                }
+                
+                dropdown.classList.add('active');
+            }
+            
+            hideDropdown() {
+                document.getElementById('area-results').classList.remove('active');
+            }
+            
+            selectArea(area) {
+                this.selectedArea = area;
+                document.getElementById('area').value = area.display_name.split(',')[0];
+                this.hideDropdown();
+                
+                if (area.boundingbox) {
+                    const bounds = [
+                        [parseFloat(area.boundingbox[2]), parseFloat(area.boundingbox[0])],
+                        [parseFloat(area.boundingbox[3]), parseFloat(area.boundingbox[1])]
+                    ];
+                    this.map.fitBounds(bounds, { padding: 50 });
+                }
+            }
+            
+            async generate() {
+                const query = document.getElementById('query').value.trim();
+                const areaName = document.getElementById('area').value.trim();
+                
+                if (!query || !areaName) {
+                    this.showMessage('Please enter both query and area', 'error');
+                    return;
+                }
+                
+                try {
+                    this.showStatus('Searching for area...');
+                    
+                    if (!this.selectedArea || !this.selectedArea.display_name.includes(areaName)) {
+                        const areaResponse = await fetch(
+                            `https://nominatim.openstreetmap.org/search?` +
+                            `format=jsonv2&q=${encodeURIComponent(areaName)}&` +
+                            `limit=1&polygon_geojson=1`
+                        );
+                        const areas = await areaResponse.json();
+                        
+                        if (areas.length === 0) {
+                            throw new Error('Area not found');
+                        }
+                        
+                        this.selectedArea = areas[0];
+                    }
+                    
+                    const areaId = 3600000000 + parseInt(this.selectedArea.osm_id);
+                    const boundary = this.selectedArea.geojson || this.makeBoundingBox(this.selectedArea.boundingbox);
+                    
+                    const areaSizeKm2 = turf.area(boundary) / 1000000;
+                    
+                    this.showStatus('Querying OSM features...');
+                    
+                    const features = await this.queryOSMFeatures(query, areaId);
+                    
+                    if (features.length === 0) {
+                        throw new Error('No features found matching the query');
+                    }
+                    
+                    this.showStatus(`Found ${features.length} features. Creating distance field...`);
+                    
+                    // Calculate max distance limit based on area
+                    this.maxDistanceLimit = Math.round(Math.sqrt(areaSizeKm2) * 0.5);
+                    
+                    // Based on empirical testing, alter to a pleasing default in % of the calculated maximum
+                    const defaultDistance = this.maxDistanceLimit * 0.12;
+                    
+                    // Ensure minimum of 0.01km (10 meters) and maximum of maxDistanceLimit
+                    this.maxDistanceKm = Math.max(0.01, Math.min(defaultDistance, this.maxDistanceLimit));
+                    this.computedMaxDistance = this.maxDistanceKm;
+                    
+                    // Calculate position on exponential scale with 0.01 km minimum
+                    const logPosition = Math.log(this.maxDistanceKm / 0.01) / Math.log(this.maxDistanceLimit / 0.01);
+                    const percent = Math.max(0, Math.min(100, logPosition * 100));
+                    document.getElementById('distance-cursor').style.left = percent + '%';
+                    document.getElementById('max-km-label').textContent = `${this.maxDistanceLimit} km`;
+                    this.updateSliderValues();
+                    
+                    document.getElementById('advanced-controls').style.display = 'block';
+                    
+                    this.showStats({
+                        featureCount: features.length,
+                        areaSizeKm2: areaSizeKm2,
+                        density: features.length / areaSizeKm2
+                    });
+                    
+                    const bounds = turf.bbox(boundary);
+                    this.renderWebGL(features, boundary, bounds);
+                    
+                    this.lastResults = { features, boundary, bounds };
+                    
+                    document.getElementById('export-png').disabled = false;
+                    
+                    this.hideStatus();
+                    
+                } catch (error) {
+                    this.showMessage(error.message, 'error');
+                    this.hideStatus();
+                }
+            }
+            
+            makeBoundingBox(bbox) {
+                const [minLat, maxLat, minLon, maxLon] = bbox.map(parseFloat);
+                return {
+                    type: 'Polygon',
+                    coordinates: [[
+                        [minLon, minLat],
+                        [maxLon, minLat],
+                        [maxLon, maxLat],
+                        [minLon, maxLat],
+                        [minLon, minLat]
+                    ]]
+                };
+            }
+            
+            async queryOSMFeatures(query, areaId) {
+                const overpassQuery = `
+                    [out:csv(::id,::lat,::lon)][timeout:30];
+                    area(id:${areaId})->.a;
+                    (
+                        node(area.a)[${query}];
+                        way(area.a)[${query}];
+                        relation(area.a)[${query}];
+                    );
+                    out center;
+                `;
+                
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: `data=${encodeURIComponent(overpassQuery)}`
+                });
+                
+                const csv = await response.text();
+                return this.parseCSV(csv);
+            }
+            
+            parseCSV(csv) {
+                const lines = csv.trim().split('\n');
+                const features = [];
+                const seen = new Set();
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const parts = lines[i].split('\t');
+                    if (parts.length >= 3) {
+                        const lat = parseFloat(parts[1]);
+                        const lon = parseFloat(parts[2]);
+                        if (!isNaN(lat) && !isNaN(lon)) {
+                            const key = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+                            if (!seen.has(key)) {
+                                seen.add(key);
+                                features.push({ lat, lon });
+                            }
+                        }
+                    }
+                }
+                
+                return features;
+            }
+            
+            haversineDistance(p1, p2) {
+                const R = 6371;
+                const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+                const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+                const lat1 = p1.lat * Math.PI / 180;
+                const lat2 = p2.lat * Math.PI / 180;
+                
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1) * Math.cos(lat2) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                
+                return R * c;
+            }
+            
+            renderWebGL(features, boundary, bounds) {
+                // Remove existing layers
+                if (this.distanceFieldLayer) {
+                    this.map.removeLayer('distance-field');
+                }
+                if (this.map.getLayer('features')) {
+                    this.map.removeLayer('features');
+                }
+                if (this.map.getSource('features')) {
+                    this.map.removeSource('features');
+                }
+                
+                const interpolatedPalettes = this.interpolatedPalettes;
+                const currentPalette = this.currentPalette;
+                
+                // Create WebGL distance field layer with texture-based storage
+                const distanceFieldLayer = {
+                    id: 'distance-field',
+                    type: 'custom',
+                    features: features,
+                    bounds: bounds,
+                    maxDistanceKm: this.maxDistanceKm,
+                    transparency: this.transparency,
+                    currentPalette: currentPalette,
+                    
+                    onAdd: function(map, gl) {
+                        const vertexShader = `
+                            attribute vec2 a_position;
+                            uniform mat4 u_matrix;
+                            varying vec2 v_pos;
+                            
+                            void main() {
+                                gl_Position = u_matrix * vec4(a_position.x, a_position.y, 0.0, 1.0);
+                                v_pos = a_position;
+                            }
+                        `;
+                        
+                        const fragmentShader = `
+                            precision highp float;
+                            
+                            uniform sampler2D u_features_texture;
+                            uniform sampler2D u_palette_texture;
+                            uniform int u_featureCount;
+                            uniform float u_maxDistanceKm;
+                            uniform float u_transparency;
+                            uniform float u_textureSize;
+                            varying vec2 v_pos;
+                            
+                            void main() {
+                                float minDist = 999999.0;
+                                
+                                // Read features from texture
+                                for (int i = 0; i < 5000; i++) {
+                                    if (i >= u_featureCount) break;
+                                    
+                                    // Calculate texture coordinates
+                                    float row = floor(float(i) / u_textureSize);
+                                    float col = mod(float(i), u_textureSize);
+                                    vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
+                                    
+                                    vec4 featureData = texture2D(u_features_texture, texCoord);
+                                    vec2 feature = featureData.xy;
+                                    
+                                    float dx = v_pos.x - feature.x;
+                                    float dy = v_pos.y - feature.y;
+                                    float dist = sqrt(dx * dx + dy * dy);
+                                    
+                                    minDist = min(minDist, dist);
+                                }
+                                
+                                float distKm = minDist * 40000.0;
+                                
+                                if (distKm >= u_maxDistanceKm) {
+                                    discard;
+                                }
+                                
+                                float normalized = 1.0 - (distKm / u_maxDistanceKm);
+                                
+                                // Sample color from palette texture
+                                vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
+                                
+                                // Apply transparency that fades towards edges (multiply by normalized for density effect)
+                                gl_FragColor = vec4(color.rgb, u_transparency * normalized);
+                            }
+                        `;
+                        
+                        const vs = gl.createShader(gl.VERTEX_SHADER);
+                        gl.shaderSource(vs, vertexShader);
+                        gl.compileShader(vs);
+                        if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+                            console.error('Vertex shader error:', gl.getShaderInfoLog(vs));
+                        }
+                        
+                        const fs = gl.createShader(gl.FRAGMENT_SHADER);
+                        gl.shaderSource(fs, fragmentShader);
+                        gl.compileShader(fs);
+                        if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+                            console.error('Fragment shader error:', gl.getShaderInfoLog(fs));
+                        }
+                        
+                        this.program = gl.createProgram();
+                        gl.attachShader(this.program, vs);
+                        gl.attachShader(this.program, fs);
+                        gl.linkProgram(this.program);
+                        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+                            console.error('Program link error:', gl.getProgramInfoLog(this.program));
+                        }
+                        
+                        this.gl = gl;
+                        this.map = map;
+                        
+                        // Create texture for features
+                        const textureSize = 128; // 128x128 texture can hold up to 16384 points
+                        this.textureSize = textureSize;
+                        
+                        const textureData = new Float32Array(textureSize * textureSize * 4);
+                        const maxFeatures = Math.min(this.features.length, 5000);
+                        
+                        for (let i = 0; i < maxFeatures; i++) {
+                            const mc = maplibregl.MercatorCoordinate.fromLngLat([
+                                this.features[i].lon, 
+                                this.features[i].lat
+                            ]);
+                            textureData[i * 4] = mc.x;
+                            textureData[i * 4 + 1] = mc.y;
+                            textureData[i * 4 + 2] = 0;
+                            textureData[i * 4 + 3] = 1;
+                        }
+                        
+                        this.featuresTexture = gl.createTexture();
+                        gl.bindTexture(gl.TEXTURE_2D, this.featuresTexture);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F || gl.RGBA, textureSize, textureSize, 0, 
+                                     gl.RGBA, gl.FLOAT, textureData);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                        
+                        // Create palette texture
+                        this.paletteTexture = gl.createTexture();
+                        this.updatePaletteTexture(gl);
+                        
+                        this.matrixLocation = gl.getUniformLocation(this.program, 'u_matrix');
+                        this.featuresTextureLocation = gl.getUniformLocation(this.program, 'u_features_texture');
+                        this.paletteTextureLocation = gl.getUniformLocation(this.program, 'u_palette_texture');
+                        this.featureCountLocation = gl.getUniformLocation(this.program, 'u_featureCount');
+                        this.maxDistanceKmLocation = gl.getUniformLocation(this.program, 'u_maxDistanceKm');
+                        this.transparencyLocation = gl.getUniformLocation(this.program, 'u_transparency');
+                        this.textureSizeLocation = gl.getUniformLocation(this.program, 'u_textureSize');
+                        this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
+                        
+                        this.featureCount = maxFeatures;
+                    },
+                    
+                    updatePaletteTexture: function(gl) {
+                        const palette = interpolatedPalettes[this.currentPalette];
+                        const paletteData = new Uint8Array(17 * 4);
+                        
+                        for (let i = 0; i < 17; i++) {
+                            const hex = palette[i];
+                            const rgb = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                            paletteData[i * 4] = parseInt(rgb[1], 16);
+                            paletteData[i * 4 + 1] = parseInt(rgb[2], 16);
+                            paletteData[i * 4 + 2] = parseInt(rgb[3], 16);
+                            paletteData[i * 4 + 3] = 255;
+                        }
+                        
+                        gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 17, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, paletteData);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                    },
+                    
+                    render: function(gl, matrix) {
+                        // Update palette if changed
+                        if (this.lastPalette !== this.currentPalette) {
+                            this.updatePaletteTexture(gl);
+                            this.lastPalette = this.currentPalette;
+                        }
+                        
+                        gl.useProgram(this.program);
+                        
+                        const bounds = this.map.getBounds();
+                        const sw = maplibregl.MercatorCoordinate.fromLngLat([bounds.getWest(), bounds.getSouth()]);
+                        const ne = maplibregl.MercatorCoordinate.fromLngLat([bounds.getEast(), bounds.getNorth()]);
+                        
+                        const positions = new Float32Array([
+                            sw.x, sw.y,
+                            ne.x, sw.y,
+                            sw.x, ne.y,
+                            ne.x, sw.y,
+                            ne.x, ne.y,
+                            sw.x, ne.y
+                        ]);
+                        
+                        const buffer = gl.createBuffer();
+                        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+                        
+                        gl.uniformMatrix4fv(this.matrixLocation, false, matrix);
+                        
+                        // Bind textures
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, this.featuresTexture);
+                        gl.uniform1i(this.featuresTextureLocation, 0);
+                        
+                        gl.activeTexture(gl.TEXTURE1);
+                        gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+                        gl.uniform1i(this.paletteTextureLocation, 1);
+                        
+                        gl.uniform1i(this.featureCountLocation, this.featureCount);
+                        gl.uniform1f(this.maxDistanceKmLocation, this.maxDistanceKm);
+                        gl.uniform1f(this.transparencyLocation, this.transparency);
+                        gl.uniform1f(this.textureSizeLocation, this.textureSize);
+                        
+                        gl.enableVertexAttribArray(this.positionLocation);
+                        gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
+                        
+                        gl.enable(gl.BLEND);
+                        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                        gl.drawArrays(gl.TRIANGLES, 0, 6);
+                        
+                        gl.deleteBuffer(buffer);
+                    }
+                };
+                
+                this.distanceFieldLayer = distanceFieldLayer;
+                this.map.addLayer(distanceFieldLayer);
+                
+                // Add features as dots
+                const palette = this.interpolatedPalettes[this.currentPalette];
+                const pointColor = palette[Math.floor(palette.length * 0.75)]; // Use color from 75% position
+                
+                this.map.addSource('features', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: features.map(f => ({
+                            type: 'Feature',
+                            geometry: {
+                                type: 'Point',
+                                coordinates: [f.lon, f.lat]
+                            }
+                        }))
+                    }
+                });
+                
+                this.map.addLayer({
+                    id: 'features',
+                    type: 'circle',
+                    source: 'features',
+                    paint: {
+                        'circle-radius': 5,
+                        'circle-color': '#ffffff',
+                        'circle-stroke-color': pointColor,
+                        'circle-stroke-width': 2
+                    }
+                });
+            }
+            
+            showStats(stats) {
+                document.getElementById('stats').style.display = 'block';
+                document.getElementById('feature-count').textContent = `Features found: ${stats.featureCount}`;
+                document.getElementById('area-size').textContent = `Area size: ${Math.round(stats.areaSizeKm2)} km²`;
+                document.getElementById('computed-max-distance').textContent = `Feature density: ${stats.density.toFixed(3)}/km²`;
+            }
+            
+            exportPNG() {
+                // Use MapLibre's built-in export functionality with proper preserveDrawingBuffer
+                this.showStatus('Preparing PNG export...');
+                
+                // Ensure the map is fully rendered
+                this.map.once('idle', () => {
+                    // Force complete render
+                    this.map.triggerRepaint();
+                    
+                    // Use requestAnimationFrame to ensure the render is complete
+                    requestAnimationFrame(() => {
+                        try {
+                            // Get the canvas
+                            const canvas = this.map.getCanvas();
+                            
+                            // Create a new canvas to ensure we capture the current state
+                            const exportCanvas = document.createElement('canvas');
+                            exportCanvas.width = canvas.width;
+                            exportCanvas.height = canvas.height;
+                            const ctx = exportCanvas.getContext('2d');
+                            
+                            // Set white background (optional, remove if you want transparency)
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+                            
+                            // Draw the map canvas onto our export canvas
+                            ctx.drawImage(canvas, 0, 0);
+                            
+                            // Export as blob
+                            exportCanvas.toBlob(blob => {
+                                if (!blob) {
+                                    this.showMessage('Failed to export PNG', 'error');
+                                    this.hideStatus();
+                                    return;
+                                }
+                                
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `isosmfar-display-${Date.now()}.png`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                
+                                this.hideStatus();
+                                this.showMessage('PNG exported successfully', 'info');
+                            }, 'image/png', 1.0); // Use maximum quality
+                        } catch (error) {
+                            console.error('PNG export error:', error);
+                            this.showMessage('Failed to export PNG: ' + error.message, 'error');
+                            this.hideStatus();
+                        }
+                    });
+                });
+                
+                // Trigger the idle event
+                this.map.triggerRepaint();
+            }
+            
+            showStatus(text) {
+                document.getElementById('status').classList.add('active');
+                document.getElementById('status-text').textContent = text;
+            }
+            
+            hideStatus() {
+                setTimeout(() => {
+                    document.getElementById('status').classList.remove('active');
+                }, 1000);
+            }
+            
+            updateProgress(value) {
+                document.getElementById('progress-fill').style.width = `${value * 100}%`;
+            }
+            
+            showMessage(text, type = 'info') {
+                const messages = document.getElementById('messages');
+                messages.innerHTML = `<div class="message ${type}-message">${text}</div>`;
+                setTimeout(() => {
+                    messages.innerHTML = '';
+                }, 5000);
+            }
+        }
+        
+        // Initialize app
+        const app = new IsosmfarApp();
+    </script>
+</body>
+</html>
