@@ -54,7 +54,6 @@ Isosmfar is a lightweight **single-page application (SPA)** built with standard 
 - **WebGL** – fast graphics rendering for smooth UX
 - **[Maplibre GL JS](https://maplibre.org/)** – interactive mapping library
 - **[Turf.js](https://turfjs.org/)** – spatial analysis and distance computations
-- **[Chromajs](https://gka.github.io/chroma.js/)** – color palette generation
 - **[Overpass API](https://overpass-api.de/)** – for querying OSM features and retrieving boundaries
 - **[Nominatim](https://nominatim.org/)** – for name autocompletion
 - **[OpenStreetMap tiles](https://www.openstreetmap.org/)** – for basemap backgrounds
