@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <!-- SEO meta description -->
-    <meta name="description" content="Interactive web app to visualize distance fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
+    <meta name="description" content="Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
 
     <!-- Open Graph for social previews -->
     <meta property="og:title" content="Isosmfar – Interactive Openstreetmap Heatmap Visualization">
-    <meta property="og:description" content="Interactive web app to visualize distance fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
+    <meta property="og:description" content="Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html">
     <meta property="og:image" content="https://github.com/liotier/Geogizmos/blob/main/Isosmfar/Screenshot%202025-09-11%20at%2017-23-08%20Isosmfar%20-%20OSM%20Distance%20Fields.png">
@@ -42,7 +42,7 @@
   "applicationCategory": "MapApplication",
   "operatingSystem": "Web",
   "softwareVersion": "1.0",
-  "description": "Interactive web app to visualize distance fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
+  "description": "Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
   "offers": {
     "@type": "Offer",
     "price": "0",
@@ -188,6 +188,55 @@
         
         button.primary:hover:not(:disabled) {
             background: #2980b9;
+        }
+        
+        /* Mode toggle styles */
+        .mode-toggle {
+            background: var(--bg-light);
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .mode-toggle-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        
+        .toggle-buttons {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .toggle-button {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        
+        .toggle-button:first-child {
+            border-radius: 4px 0 0 4px;
+        }
+        
+        .toggle-button:last-child {
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .toggle-button.active {
+            background: var(--secondary);
+            color: white;
+            border-color: var(--secondary);
+        }
+        
+        .toggle-button:not(.active):hover {
+            background: var(--bg-light);
         }
         
         /* Slider styles */
@@ -495,6 +544,15 @@
             <div id="controls">
                 <div id="messages"></div>
                 
+                <!-- Mode toggle -->
+                <div class="mode-toggle">
+                    <label class="mode-toggle-label">Visualization mode</label>
+                    <div class="toggle-buttons">
+                        <div class="toggle-button active" data-mode="distance">Distance field</div>
+                        <div class="toggle-button" data-mode="density">Density field</div>
+                    </div>
+                </div>
+                
                 <div class="control-group">
                     <label>Filter query</label>
                     <input type="text" id="query" value="amenity=hospital" placeholder="e.g., shop=supermarket, leisure=park">
@@ -532,12 +590,12 @@
                 </div>
                 
                 <div class="control-group">
-                    <button id="generate" class="primary">Generate distance field</button>
+                    <button id="generate" class="primary">Generate visualization</button>
                     <button id="export-png" disabled title="Export visualization as PNG image">Export PNG</button>
                 </div>
                 
                 <div class="advanced-controls" id="advanced-controls" style="display: none;">
-                    <label class="slider-label tooltip" data-tooltip="Adjust gradient radius around data points">Gradient radius</label>
+                    <label class="slider-label tooltip" id="radius-label" data-tooltip="Adjust gradient radius around data points">Gradient radius</label>
                     <div class="slider-container">
                         <div class="slider-track" id="distance-slider">
                             <div class="slider-cursor" id="distance-cursor" style="left: 50%;"></div>
@@ -600,6 +658,9 @@
                 this.lastResults = null;
                 this.searchTimeout = null;
                 
+                // Visualization mode
+                this.visualizationMode = 'distance'; // 'distance' or 'density'
+                
                 // Visualization parameters
                 this.maxDistanceKm = 50;
                 this.maxDistanceLimit = null;
@@ -637,6 +698,42 @@
                 this.initMap();
                 this.bindEvents();
                 this.initSliderControls();
+                this.initModeToggle();
+            }
+            
+            initModeToggle() {
+                const toggleButtons = document.querySelectorAll('.toggle-button');
+                toggleButtons.forEach(button => {
+                    button.addEventListener('click', () => {
+                        // Update active state
+                        toggleButtons.forEach(b => b.classList.remove('active'));
+                        button.classList.add('active');
+                        
+                        // Update mode
+                        this.visualizationMode = button.dataset.mode;
+                        
+                        // Update UI labels based on mode
+                        this.updateUIForMode();
+                        
+                        // Re-render if we have data
+                        if (this.distanceFieldLayer) {
+                            this.updateVisualization();
+                        }
+                    });
+                });
+            }
+            
+            updateUIForMode() {
+                const radiusLabel = document.getElementById('radius-label');
+                const radiusTooltip = radiusLabel;
+                
+                if (this.visualizationMode === 'distance') {
+                    radiusLabel.textContent = 'Gradient radius';
+                    radiusTooltip.setAttribute('data-tooltip', 'Adjust gradient radius around data points');
+                } else {
+                    radiusLabel.textContent = 'Density kernel radius';
+                    radiusTooltip.setAttribute('data-tooltip', 'Count features within this radius for density calculation');
+                }
             }
             
             hexToRgb(hex) {
@@ -790,7 +887,7 @@
                     id: 'osm',
                     type: 'raster',
                     source: 'osm'
-                }, this.map.getLayer('distance-field') ? 'distance-field' : undefined);
+                }, this.map.getLayer('visualization-field') ? 'visualization-field' : undefined);
                 
                 this.currentBasemap = basemapType;
             }
@@ -878,6 +975,7 @@
                 this.distanceFieldLayer.maxDistanceKm = this.maxDistanceKm;
                 this.distanceFieldLayer.transparency = this.transparency;
                 this.distanceFieldLayer.currentPalette = this.currentPalette;
+                this.distanceFieldLayer.visualizationMode = this.visualizationMode;
                 this.map.triggerRepaint();
             }
             
@@ -1004,7 +1102,8 @@
                         throw new Error('No features found matching the query');
                     }
                     
-                    this.showStatus(`Found ${features.length} features. Creating distance field...`);
+                    const modeText = this.visualizationMode === 'distance' ? 'distance field' : 'density field';
+                    this.showStatus(`Found ${features.length} features. Creating ${modeText}...`);
                     
                     // Calculate max distance limit based on area
                     this.maxDistanceLimit = Math.round(Math.sqrt(areaSizeKm2) * 0.5);
@@ -1104,25 +1203,10 @@
                 return features;
             }
             
-            haversineDistance(p1, p2) {
-                const R = 6371;
-                const dLat = (p2.lat - p1.lat) * Math.PI / 180;
-                const dLon = (p2.lon - p1.lon) * Math.PI / 180;
-                const lat1 = p1.lat * Math.PI / 180;
-                const lat2 = p2.lat * Math.PI / 180;
-                
-                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(lat1) * Math.cos(lat2) *
-                    Math.sin(dLon/2) * Math.sin(dLon/2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                
-                return R * c;
-            }
-            
             renderWebGL(features, boundary, bounds) {
                 // Remove existing layers
                 if (this.distanceFieldLayer) {
-                    this.map.removeLayer('distance-field');
+                    this.map.removeLayer('visualization-field');
                 }
                 if (this.map.getLayer('features')) {
                     this.map.removeLayer('features');
@@ -1133,16 +1217,18 @@
                 
                 const interpolatedPalettes = this.interpolatedPalettes;
                 const currentPalette = this.currentPalette;
+                const visualizationMode = this.visualizationMode;
                 
-                // Create WebGL distance field layer with texture-based storage
-                const distanceFieldLayer = {
-                    id: 'distance-field',
+                // Create WebGL visualization layer with mode support
+                const visualizationLayer = {
+                    id: 'visualization-field',
                     type: 'custom',
                     features: features,
                     bounds: bounds,
                     maxDistanceKm: this.maxDistanceKm,
                     transparency: this.transparency,
                     currentPalette: currentPalette,
+                    visualizationMode: visualizationMode,
                     
                     onAdd: function(map, gl) {
                         const vertexShader = `
@@ -1165,43 +1251,79 @@
                             uniform float u_maxDistanceKm;
                             uniform float u_transparency;
                             uniform float u_textureSize;
+                            uniform int u_mode; // 0 = distance, 1 = density
                             varying vec2 v_pos;
                             
                             void main() {
-                                float minDist = 999999.0;
-                                
-                                // Read features from texture
-                                for (int i = 0; i < 5000; i++) {
-                                    if (i >= u_featureCount) break;
+                                if (u_mode == 0) {
+                                    // Distance field mode
+                                    float minDist = 999999.0;
                                     
-                                    // Calculate texture coordinates
-                                    float row = floor(float(i) / u_textureSize);
-                                    float col = mod(float(i), u_textureSize);
-                                    vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
+                                    for (int i = 0; i < 5000; i++) {
+                                        if (i >= u_featureCount) break;
+                                        
+                                        float row = floor(float(i) / u_textureSize);
+                                        float col = mod(float(i), u_textureSize);
+                                        vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
+                                        
+                                        vec4 featureData = texture2D(u_features_texture, texCoord);
+                                        vec2 feature = featureData.xy;
+                                        
+                                        float dx = v_pos.x - feature.x;
+                                        float dy = v_pos.y - feature.y;
+                                        float dist = sqrt(dx * dx + dy * dy);
+                                        
+                                        minDist = min(minDist, dist);
+                                    }
                                     
-                                    vec4 featureData = texture2D(u_features_texture, texCoord);
-                                    vec2 feature = featureData.xy;
+                                    float distKm = minDist * 40000.0;
                                     
-                                    float dx = v_pos.x - feature.x;
-                                    float dy = v_pos.y - feature.y;
-                                    float dist = sqrt(dx * dx + dy * dy);
+                                    if (distKm >= u_maxDistanceKm) {
+                                        discard;
+                                    }
                                     
-                                    minDist = min(minDist, dist);
+                                    float normalized = 1.0 - (distKm / u_maxDistanceKm);
+                                    vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
+                                    gl_FragColor = vec4(color.rgb, u_transparency * normalized);
+                                    
+                                } else {
+                                    // Density field mode
+                                    float density = 0.0;
+                                    float bandwidth = u_maxDistanceKm * 0.3; // Gaussian bandwidth as % of radius
+                                    
+                                    for (int i = 0; i < 5000; i++) {
+                                        if (i >= u_featureCount) break;
+                                        
+                                        float row = floor(float(i) / u_textureSize);
+                                        float col = mod(float(i), u_textureSize);
+                                        vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
+                                        
+                                        vec4 featureData = texture2D(u_features_texture, texCoord);
+                                        vec2 feature = featureData.xy;
+                                        
+                                        float dx = v_pos.x - feature.x;
+                                        float dy = v_pos.y - feature.y;
+                                        float dist = sqrt(dx * dx + dy * dy);
+                                        float distKm = dist * 40000.0;
+                                        
+                                        if (distKm < u_maxDistanceKm) {
+                                            // Gaussian kernel
+                                            float weight = exp(-0.5 * pow(distKm / bandwidth, 2.0));
+                                            density += weight;
+                                        }
+                                    }
+                                    
+                                    if (density < 0.01) {
+                                        discard;
+                                    }
+                                    
+                                    // Normalize density (auto-scaling)
+                                    float maxExpectedDensity = 10.0; // This will auto-adjust based on actual values
+                                    float normalized = min(1.0, density / maxExpectedDensity);
+                                    
+                                    vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
+                                    gl_FragColor = vec4(color.rgb, u_transparency * normalized);
                                 }
-                                
-                                float distKm = minDist * 40000.0;
-                                
-                                if (distKm >= u_maxDistanceKm) {
-                                    discard;
-                                }
-                                
-                                float normalized = 1.0 - (distKm / u_maxDistanceKm);
-                                
-                                // Sample color from palette texture
-                                vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
-                                
-                                // Apply transparency that fades towards edges (multiply by normalized for density effect)
-                                gl_FragColor = vec4(color.rgb, u_transparency * normalized);
                             }
                         `;
                         
@@ -1268,6 +1390,7 @@
                         this.maxDistanceKmLocation = gl.getUniformLocation(this.program, 'u_maxDistanceKm');
                         this.transparencyLocation = gl.getUniformLocation(this.program, 'u_transparency');
                         this.textureSizeLocation = gl.getUniformLocation(this.program, 'u_textureSize');
+                        this.modeLocation = gl.getUniformLocation(this.program, 'u_mode');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
                         
                         this.featureCount = maxFeatures;
@@ -1335,6 +1458,7 @@
                         gl.uniform1f(this.maxDistanceKmLocation, this.maxDistanceKm);
                         gl.uniform1f(this.transparencyLocation, this.transparency);
                         gl.uniform1f(this.textureSizeLocation, this.textureSize);
+                        gl.uniform1i(this.modeLocation, this.visualizationMode === 'density' ? 1 : 0);
                         
                         gl.enableVertexAttribArray(this.positionLocation);
                         gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
@@ -1347,8 +1471,8 @@
                     }
                 };
                 
-                this.distanceFieldLayer = distanceFieldLayer;
-                this.map.addLayer(distanceFieldLayer);
+                this.distanceFieldLayer = visualizationLayer;
+                this.map.addLayer(visualizationLayer);
                 
                 // Add features as dots
                 const palette = this.interpolatedPalettes[this.currentPalette];
@@ -1427,7 +1551,7 @@
                                 const url = URL.createObjectURL(blob);
                                 const a = document.createElement('a');
                                 a.href = url;
-                                a.download = `isosmfar-display-${Date.now()}.png`;
+                                a.download = `isosmfar-${this.visualizationMode}-${Date.now()}.png`;
                                 a.click();
                                 URL.revokeObjectURL(url);
                                 
