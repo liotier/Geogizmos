@@ -1,6 +1,6 @@
 # Isosmfar
 
-**Isosmfar** is an interactive web application for exploring **iso-distance fields** based on OpenStreetMap (OSM) data. It lets you visualize how far every location in a chosen area is from features that match a query (e.g. schools, hospitals, bus stops, restaurants, etc.).
+**Isosmfar** is an interactive web application for exploring **iso-distance fields** based on Openstreetmap (OSM) data. It lets you visualize how far every location in a chosen area is from features that match a query (e.g. schools, hospitals, bus stops, restaurants, etc.).
 
 # 👉 [Try it now – Isosmfar online](https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html)
 
@@ -52,7 +52,7 @@ Isosmfar is a lightweight **single-page application (SPA)** built with standard 
 - **[Turf.js](https://turfjs.org/)** – spatial analysis and distance computations
 - **[Overpass API](https://overpass-api.de/)** – for querying OSM features and retrieving boundaries
 - **[Nominatim](https://nominatim.org/)** – for name autocompletion
-- **[OpenStreetMap tiles](https://www.openstreetmap.org/)** – for basemap backgrounds
+- **[Openstreetmap tiles](https://www.openstreetmap.org/)** – for basemap backgrounds
 
 The app is fully self-contained - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
 
