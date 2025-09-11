@@ -54,7 +54,9 @@ Isosmfar is a lightweight **single-page application (SPA)** built with standard 
 - **[Nominatim](https://nominatim.org/)** – for name autocompletion
 - **[OpenStreetMap tiles](https://www.openstreetmap.org/)** – for basemap backgrounds
 
-No build system, no external dependencies beyond the included libraries. The app is fully self-contained - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services. I love Openstreetmap !
+The app is fully self-contained - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
+
+I love Openstreetmap !
 
 ## 📖 How It Works
 
