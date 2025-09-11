@@ -1,0 +1,23 @@
+{
+  "name": "Isosmfar",
+  "short_name": "Isosmfar",
+  "description": "Interactive OpenStreetMap heatmap visualization – explore distance fields to schools, hospitals, transport, and more.",
+  "start_url": "Isosmfar.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#2b2b2b",
+  "theme_color": "#2b2b2b",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
