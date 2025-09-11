@@ -35,15 +35,11 @@
 - **Export your results**  
   Save your visualization as a PNG image for sharing, reporting, or further analysis.
 
----
-
 ## 🚀 Benefits
 
 - **100% client-side** – all computation and rendering happen in your browser.  
 - **Portable single-page app** – can be hosted anywhere as a single HTML file (plus assets).  
 - **Free and open** – powered by free data and open-source libraries.  
-
----
 
 ## 🛠️ Technology
 
@@ -59,8 +55,6 @@ Isosmfar is a lightweight **single-page application (SPA)** built with standard 
 - **[OpenStreetMap tiles](https://www.openstreetmap.org/)** – for basemap backgrounds
 
 No build system, no external dependencies beyond the included libraries. The app is fully self-contained - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services. I love Openstreetmap !
-
----
 
 ## 📖 How It Works
 
@@ -85,8 +79,6 @@ No build system, no external dependencies beyond the included libraries. The app
 6. **Export your result**  
    Click *Export PNG* to save the current map view with the distance overlay.
 
----
-
 ## 📦 Deployment
 
 Since Isosmfar is just a static HTML/JS app, you can:
@@ -96,13 +88,9 @@ Since Isosmfar is just a static HTML/JS app, you can:
 
 **No server-side components are required beyond access to OSM services.**
 
----
-
 ## 📜 License
 
 This project is distributed under the [Unlicense](https://unlicense.org), placing it in the public domain.  
-
----
 
 ## 👤 Authors
 
