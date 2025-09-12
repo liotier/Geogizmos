@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <!-- SEO meta description -->
-    <meta name="description" content="Interactive web app to visualize distance, density, and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
+    <meta name="description" content="Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
 
     <!-- Open Graph for social previews -->
     <meta property="og:title" content="Isosmfar – Interactive Openstreetmap Heatmap Visualization">
-    <meta property="og:description" content="Interactive web app to visualize distance, density, and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
+    <meta property="og:description" content="Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html">
     <meta property="og:image" content="https://github.com/liotier/Geogizmos/blob/main/Isosmfar/Screenshot%202025-09-11%20at%2017-23-08%20Isosmfar%20-%20OSM%20Distance%20Fields.png">
@@ -42,7 +42,7 @@
   "applicationCategory": "MapApplication",
   "operatingSystem": "Web",
   "softwareVersion": "1.0",
-  "description": "Interactive web app to visualize distance, density, and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
+  "description": "Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
   "offers": {
     "@type": "Offer",
     "price": "0",
@@ -207,21 +207,18 @@
         
         .toggle-buttons {
             display: flex;
-            gap: 2px;
+            gap: 4px;
         }
         
         .toggle-button {
             flex: 1;
-            padding: 8px 4px;
+            padding: 8px 12px;
             border: 1px solid var(--border);
             background: white;
             cursor: pointer;
             font-size: 12px;
             text-align: center;
             transition: all 0.2s;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
         
         .toggle-button:first-child {
@@ -551,9 +548,8 @@
                 <div class="mode-toggle">
                     <label class="mode-toggle-label">Visualization mode</label>
                     <div class="toggle-buttons">
-                        <div class="toggle-button active" data-mode="distance">Distance</div>
-                        <div class="toggle-button" data-mode="density">Density</div>
-                        <div class="toggle-button" data-mode="voronoi">Voronoi</div>
+                        <div class="toggle-button active" data-mode="distance">Distance field</div>
+                        <div class="toggle-button" data-mode="density">Density field</div>
                     </div>
                 </div>
                 
@@ -600,7 +596,7 @@
                 
                 <div class="advanced-controls" id="advanced-controls" style="display: none;">
                     <label class="slider-label tooltip" id="radius-label" data-tooltip="Adjust gradient radius around data points">Gradient radius</label>
-                    <div class="slider-container" id="radius-slider-container">
+                    <div class="slider-container">
                         <div class="slider-track" id="distance-slider">
                             <div class="slider-cursor" id="distance-cursor" style="left: 50%;"></div>
                         </div>
@@ -663,7 +659,7 @@
                 this.searchTimeout = null;
                 
                 // Visualization mode
-                this.visualizationMode = 'distance'; // 'distance', 'density', or 'voronoi'
+                this.visualizationMode = 'distance'; // 'distance' or 'density'
                 
                 // Visualization parameters
                 this.maxDistanceKm = 50;
@@ -730,19 +726,13 @@
             updateUIForMode() {
                 const radiusLabel = document.getElementById('radius-label');
                 const radiusTooltip = radiusLabel;
-                const radiusSliderContainer = document.getElementById('radius-slider-container');
                 
                 if (this.visualizationMode === 'distance') {
                     radiusLabel.textContent = 'Gradient radius';
                     radiusTooltip.setAttribute('data-tooltip', 'Adjust gradient radius around data points');
-                    radiusSliderContainer.style.display = 'block';
-                } else if (this.visualizationMode === 'density') {
+                } else {
                     radiusLabel.textContent = 'Density kernel radius';
                     radiusTooltip.setAttribute('data-tooltip', 'Count features within this radius for density calculation');
-                    radiusSliderContainer.style.display = 'block';
-                } else if (this.visualizationMode === 'voronoi') {
-                    // Hide radius control for Voronoi mode as it doesn't use it
-                    radiusSliderContainer.style.display = 'none';
                 }
             }
             
@@ -1112,8 +1102,7 @@
                         throw new Error('No features found matching the query');
                     }
                     
-                    const modeText = this.visualizationMode === 'distance' ? 'distance field' : 
-                                    this.visualizationMode === 'density' ? 'density field' : 'Voronoi territories';
+                    const modeText = this.visualizationMode === 'distance' ? 'distance field' : 'density field';
                     this.showStatus(`Found ${features.length} features. Creating ${modeText}...`);
                     
                     // Calculate max distance limit based on area
@@ -1134,7 +1123,6 @@
                     this.updateSliderValues();
                     
                     document.getElementById('advanced-controls').style.display = 'block';
-                    this.updateUIForMode(); // Update UI based on current mode
                     
                     this.showStats({
                         featureCount: features.length,
@@ -1231,13 +1219,12 @@
                 const currentPalette = this.currentPalette;
                 const visualizationMode = this.visualizationMode;
                 
-                // Create WebGL visualization layer with boundary clipping support
+                // Create WebGL visualization layer with mode support
                 const visualizationLayer = {
                     id: 'visualization-field',
                     type: 'custom',
                     features: features,
                     bounds: bounds,
-                    boundary: boundary,
                     maxDistanceKm: this.maxDistanceKm,
                     transparency: this.transparency,
                     currentPalette: currentPalette,
@@ -1248,12 +1235,10 @@
                             attribute vec2 a_position;
                             uniform mat4 u_matrix;
                             varying vec2 v_pos;
-                            varying vec2 v_mercator;
                             
                             void main() {
                                 gl_Position = u_matrix * vec4(a_position.x, a_position.y, 0.0, 1.0);
                                 v_pos = a_position;
-                                v_mercator = a_position;
                             }
                         `;
                         
@@ -1266,28 +1251,10 @@
                             uniform float u_maxDistanceKm;
                             uniform float u_transparency;
                             uniform float u_textureSize;
-                            uniform int u_mode; // 0 = distance, 1 = density, 2 = voronoi
-                            uniform vec4 u_bounds; // minX, minY, maxX, maxY in mercator
+                            uniform int u_mode; // 0 = distance, 1 = density
                             varying vec2 v_pos;
-                            varying vec2 v_mercator;
-                            
-                            // Simple boundary check using bounding box
-                            bool isInsideBounds() {
-                                return v_mercator.x >= u_bounds.x && v_mercator.x <= u_bounds.z &&
-                                       v_mercator.y >= u_bounds.y && v_mercator.y <= u_bounds.w;
-                            }
-                            
-                            // Hash function for pseudo-random colors
-                            float hash(float n) {
-                                return fract(sin(n) * 43758.5453123);
-                            }
                             
                             void main() {
-                                // Check if pixel is inside boundary
-                                if (!isInsideBounds()) {
-                                    discard;
-                                }
-                                
                                 if (u_mode == 0) {
                                     // Distance field mode
                                     float minDist = 999999.0;
@@ -1319,7 +1286,7 @@
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
                                     
-                                } else if (u_mode == 1) {
+                                } else {
                                     // Density field mode
                                     float density = 0.0;
                                     float bandwidth = u_maxDistanceKm * 0.3; // Gaussian bandwidth as % of radius
@@ -1356,45 +1323,6 @@
                                     
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
-                                    
-                                } else if (u_mode == 2) {
-                                    // Voronoi field mode
-                                    float minDist = 999999.0;
-                                    int nearestFeature = -1;
-                                    
-                                    for (int i = 0; i < 5000; i++) {
-                                        if (i >= u_featureCount) break;
-                                        
-                                        float row = floor(float(i) / u_textureSize);
-                                        float col = mod(float(i), u_textureSize);
-                                        vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
-                                        
-                                        vec4 featureData = texture2D(u_features_texture, texCoord);
-                                        vec2 feature = featureData.xy;
-                                        
-                                        float dx = v_pos.x - feature.x;
-                                        float dy = v_pos.y - feature.y;
-                                        float dist = sqrt(dx * dx + dy * dy);
-                                        
-                                        if (dist < minDist) {
-                                            minDist = dist;
-                                            nearestFeature = i;
-                                        }
-                                    }
-                                    
-                                    if (nearestFeature == -1) {
-                                        discard;
-                                    }
-                                    
-                                    // Use feature ID to select color from palette
-                                    float colorIndex = mod(float(nearestFeature), 17.0) / 16.0;
-                                    vec4 color = texture2D(u_palette_texture, vec2(colorIndex, 0.5));
-                                    
-                                    // Darken edges slightly based on distance for better territory visualization
-                                    float edgeFactor = 1.0 - (minDist * 200.0); // Adjust edge contrast
-                                    edgeFactor = clamp(edgeFactor, 0.5, 1.0);
-                                    
-                                    gl_FragColor = vec4(color.rgb * edgeFactor, u_transparency);
                                 }
                             }
                         `;
@@ -1455,11 +1383,6 @@
                         this.paletteTexture = gl.createTexture();
                         this.updatePaletteTexture(gl);
                         
-                        // Calculate boundary bounds in mercator coordinates
-                        const sw = maplibregl.MercatorCoordinate.fromLngLat([this.bounds[0], this.bounds[1]]);
-                        const ne = maplibregl.MercatorCoordinate.fromLngLat([this.bounds[2], this.bounds[3]]);
-                        this.mercatorBounds = [sw.x, sw.y, ne.x, ne.y];
-                        
                         this.matrixLocation = gl.getUniformLocation(this.program, 'u_matrix');
                         this.featuresTextureLocation = gl.getUniformLocation(this.program, 'u_features_texture');
                         this.paletteTextureLocation = gl.getUniformLocation(this.program, 'u_palette_texture');
@@ -1468,7 +1391,6 @@
                         this.transparencyLocation = gl.getUniformLocation(this.program, 'u_transparency');
                         this.textureSizeLocation = gl.getUniformLocation(this.program, 'u_textureSize');
                         this.modeLocation = gl.getUniformLocation(this.program, 'u_mode');
-                        this.boundsLocation = gl.getUniformLocation(this.program, 'u_bounds');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
                         
                         this.featureCount = maxFeatures;
@@ -1536,13 +1458,7 @@
                         gl.uniform1f(this.maxDistanceKmLocation, this.maxDistanceKm);
                         gl.uniform1f(this.transparencyLocation, this.transparency);
                         gl.uniform1f(this.textureSizeLocation, this.textureSize);
-                        gl.uniform4fv(this.boundsLocation, this.mercatorBounds);
-                        
-                        // Set mode: 0 = distance, 1 = density, 2 = voronoi
-                        let modeValue = 0;
-                        if (this.visualizationMode === 'density') modeValue = 1;
-                        else if (this.visualizationMode === 'voronoi') modeValue = 2;
-                        gl.uniform1i(this.modeLocation, modeValue);
+                        gl.uniform1i(this.modeLocation, this.visualizationMode === 'density' ? 1 : 0);
                         
                         gl.enableVertexAttribArray(this.positionLocation);
                         gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
