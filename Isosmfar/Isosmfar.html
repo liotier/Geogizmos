@@ -1231,12 +1231,13 @@
                 const currentPalette = this.currentPalette;
                 const visualizationMode = this.visualizationMode;
                 
-                // Create WebGL visualization layer with mode support
+                // Create WebGL visualization layer with boundary clipping support
                 const visualizationLayer = {
                     id: 'visualization-field',
                     type: 'custom',
                     features: features,
                     bounds: bounds,
+                    boundary: boundary,
                     maxDistanceKm: this.maxDistanceKm,
                     transparency: this.transparency,
                     currentPalette: currentPalette,
@@ -1247,10 +1248,12 @@
                             attribute vec2 a_position;
                             uniform mat4 u_matrix;
                             varying vec2 v_pos;
+                            varying vec2 v_mercator;
                             
                             void main() {
                                 gl_Position = u_matrix * vec4(a_position.x, a_position.y, 0.0, 1.0);
                                 v_pos = a_position;
+                                v_mercator = a_position;
                             }
                         `;
                         
@@ -1264,7 +1267,15 @@
                             uniform float u_transparency;
                             uniform float u_textureSize;
                             uniform int u_mode; // 0 = distance, 1 = density, 2 = voronoi
+                            uniform vec4 u_bounds; // minX, minY, maxX, maxY in mercator
                             varying vec2 v_pos;
+                            varying vec2 v_mercator;
+                            
+                            // Simple boundary check using bounding box
+                            bool isInsideBounds() {
+                                return v_mercator.x >= u_bounds.x && v_mercator.x <= u_bounds.z &&
+                                       v_mercator.y >= u_bounds.y && v_mercator.y <= u_bounds.w;
+                            }
                             
                             // Hash function for pseudo-random colors
                             float hash(float n) {
@@ -1272,6 +1283,11 @@
                             }
                             
                             void main() {
+                                // Check if pixel is inside boundary
+                                if (!isInsideBounds()) {
+                                    discard;
+                                }
+                                
                                 if (u_mode == 0) {
                                     // Distance field mode
                                     float minDist = 999999.0;
@@ -1439,6 +1455,11 @@
                         this.paletteTexture = gl.createTexture();
                         this.updatePaletteTexture(gl);
                         
+                        // Calculate boundary bounds in mercator coordinates
+                        const sw = maplibregl.MercatorCoordinate.fromLngLat([this.bounds[0], this.bounds[1]]);
+                        const ne = maplibregl.MercatorCoordinate.fromLngLat([this.bounds[2], this.bounds[3]]);
+                        this.mercatorBounds = [sw.x, sw.y, ne.x, ne.y];
+                        
                         this.matrixLocation = gl.getUniformLocation(this.program, 'u_matrix');
                         this.featuresTextureLocation = gl.getUniformLocation(this.program, 'u_features_texture');
                         this.paletteTextureLocation = gl.getUniformLocation(this.program, 'u_palette_texture');
@@ -1447,6 +1468,7 @@
                         this.transparencyLocation = gl.getUniformLocation(this.program, 'u_transparency');
                         this.textureSizeLocation = gl.getUniformLocation(this.program, 'u_textureSize');
                         this.modeLocation = gl.getUniformLocation(this.program, 'u_mode');
+                        this.boundsLocation = gl.getUniformLocation(this.program, 'u_bounds');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
                         
                         this.featureCount = maxFeatures;
@@ -1514,6 +1536,7 @@
                         gl.uniform1f(this.maxDistanceKmLocation, this.maxDistanceKm);
                         gl.uniform1f(this.transparencyLocation, this.transparency);
                         gl.uniform1f(this.textureSizeLocation, this.textureSize);
+                        gl.uniform4fv(this.boundsLocation, this.mercatorBounds);
                         
                         // Set mode: 0 = distance, 1 = density, 2 = voronoi
                         let modeValue = 0;
