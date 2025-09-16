@@ -594,7 +594,7 @@
                 <!-- Voronoi overlay checkbox -->
                 <div class="checkbox-group">
                     <input type="checkbox" id="voronoi-overlay" />
-                    <label for="voronoi-overlay">Show Voronoi borders</label>
+                    <label for="voronoi-overlay">Show Voronoi boundaries</label>
                 </div>
                 
                 <div class="control-group">
@@ -725,7 +725,7 @@
                 this.visualizationMode = 'distance'; // 'distance' or 'density'
                 
                 // Voronoi overlay state
-                this.showVoronoiBorders = false;
+                this.showVoronoiBoundaries = false;
                 this.voronoiCoalesceKm = 0; // 0 = no coalescing
                 
                 // Visualization parameters
@@ -805,11 +805,11 @@
             initVoronoiCheckbox() {
                 const checkbox = document.getElementById('voronoi-overlay');
                 checkbox.addEventListener('change', (e) => {
-                    this.showVoronoiBorders = e.target.checked;
+                    this.showVoronoiBoundaries = e.target.checked;
                     
                     // Show/hide Voronoi controls
                     const voronoiControls = document.getElementById('voronoi-controls');
-                    if (this.showVoronoiBorders) {
+                    if (this.showVoronoiBoundaries) {
                         voronoiControls.classList.add('active');
                     } else {
                         voronoiControls.classList.remove('active');
@@ -1124,7 +1124,7 @@
             }
             
             updateVoronoiOverlay() {
-                if (this.showVoronoiBorders && this.voronoiGeoJSON) {
+                if (this.showVoronoiBoundaries && this.voronoiGeoJSON) {
                     // Add or update Voronoi layer
                     if (!this.map.getSource('voronoi-lines')) {
                         this.map.addSource('voronoi-lines', {
@@ -1947,7 +1947,7 @@
                 this.map.addLayer(gradientLayer);
                 
                 // Add Voronoi overlay if checkbox is checked
-                if (this.showVoronoiBorders) {
+                if (this.showVoronoiBoundaries) {
                     this.updateVoronoiOverlay();
                 }
                 
