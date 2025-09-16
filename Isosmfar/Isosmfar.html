@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <!-- SEO meta description -->
-    <meta name="description" content="Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
+    <meta name="description" content="Interactive web app to visualize distance, density and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
 
     <!-- Open Graph for social previews -->
-    <meta property="og:title" content="Isosmfar – Interactive Openstreetmap Heatmap Visualization">
-    <meta property="og:description" content="Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
+    <meta property="og:title" content="Isosmfar — Interactive Openstreetmap Heatmap Visualization">
+    <meta property="og:description" content="Interactive web app to visualize distance, density and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html">
     <meta property="og:image" content="https://github.com/liotier/Geogizmos/blob/main/Isosmfar/Screenshot%202025-09-11%20at%2017-23-08%20Isosmfar%20-%20OSM%20Distance%20Fields.png">
@@ -52,7 +52,7 @@
 </script>
 
     
-    <title>Isosmfar – Interactive Openstreetmap Heatmap Visualization</title>
+    <title>Isosmfar — Interactive Openstreetmap Heatmap Visualization</title>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
         :root {
@@ -207,12 +207,12 @@
         
         .toggle-buttons {
             display: flex;
-            gap: 4px;
+            gap: 2px;
         }
         
         .toggle-button {
             flex: 1;
-            padding: 8px 12px;
+            padding: 8px 4px;
             border: 1px solid var(--border);
             background: white;
             cursor: pointer;
@@ -237,6 +237,27 @@
         
         .toggle-button:not(.active):hover {
             background: var(--bg-light);
+        }
+        
+        /* Checkbox styles */
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            background: var(--bg-light);
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+        
+        .checkbox-group label {
+            font-size: 13px;
+            cursor: pointer;
+            margin: 0;
         }
         
         /* Slider styles */
@@ -439,6 +460,23 @@
             margin-top: 15px;
         }
         
+        /* Voronoi controls */
+        .voronoi-controls {
+            display: none;
+            margin-top: 15px;
+        }
+        
+        .voronoi-controls.active {
+            display: block;
+        }
+        
+        .coalesce-info {
+            font-size: 11px;
+            color: var(--text-light);
+            text-align: center;
+            margin-top: 5px;
+        }
+        
         /* Better attribution styling */
         .maplibregl-ctrl-attrib {
             background: rgba(255, 255, 255, 0.3) !important;
@@ -544,13 +582,19 @@
             <div id="controls">
                 <div id="messages"></div>
                 
-                <!-- Mode toggle -->
+                <!-- Mode toggle (now only Distance and Density) -->
                 <div class="mode-toggle">
                     <label class="mode-toggle-label">Visualization mode</label>
                     <div class="toggle-buttons">
-                        <div class="toggle-button active" data-mode="distance">Distance field</div>
-                        <div class="toggle-button" data-mode="density">Density field</div>
+                        <div class="toggle-button active" data-mode="distance">Distance Field</div>
+                        <div class="toggle-button" data-mode="density">Density Field</div>
                     </div>
+                </div>
+                
+                <!-- Voronoi overlay checkbox -->
+                <div class="checkbox-group">
+                    <input type="checkbox" id="voronoi-overlay" />
+                    <label for="voronoi-overlay">Show Voronoi borders</label>
                 </div>
                 
                 <div class="control-group">
@@ -596,7 +640,7 @@
                 
                 <div class="advanced-controls" id="advanced-controls" style="display: none;">
                     <label class="slider-label tooltip" id="radius-label" data-tooltip="Adjust gradient radius around data points">Gradient radius</label>
-                    <div class="slider-container">
+                    <div class="slider-container" id="radius-slider-container">
                         <div class="slider-track" id="distance-slider">
                             <div class="slider-cursor" id="distance-cursor" style="left: 50%;"></div>
                         </div>
@@ -620,6 +664,24 @@
                         </div>
                         <div style="text-align: center;">
                             <span class="slider-value" id="transparency-value">50%</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Voronoi coalesce slider (shown only when Voronoi is checked) -->
+                    <div class="voronoi-controls" id="voronoi-controls">
+                        <label class="slider-label tooltip" data-tooltip="Merge nearby points before computing Voronoi cells" style="margin: 15px 0 5px 0;">Voronoi coalesce distance</label>
+                        <div class="slider-container">
+                            <div class="slider-track" id="coalesce-slider">
+                                <div class="slider-cursor" id="coalesce-cursor" style="left: 0%;"></div>
+                            </div>
+                            <div class="slider-labels">
+                                <span>Off</span>
+                                <span>20 km</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <span class="slider-value" id="coalesce-value">Off</span>
+                            </div>
+                            <div class="coalesce-info" id="coalesce-info"></div>
                         </div>
                     </div>
                 </div>
@@ -649,6 +711,7 @@
     
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
     
     <script>
         class IsosmfarApp {
@@ -661,17 +724,31 @@
                 // Visualization mode
                 this.visualizationMode = 'distance'; // 'distance' or 'density'
                 
+                // Voronoi overlay state
+                this.showVoronoiBorders = false;
+                this.voronoiCoalesceKm = 0; // 0 = no coalescing
+                
                 // Visualization parameters
                 this.maxDistanceKm = 50;
                 this.maxDistanceLimit = null;
                 this.transparency = 0.5;
                 this.computedMaxDistance = null;
                 
-                // Distance field layer
-                this.distanceFieldLayer = null;
+                // Gradient field layer
+                this.gradientFieldLayer = null;
+                
+                // Store Voronoi GeoJSON for toggling
+                this.voronoiGeoJSON = null;
+                
+                // Store original features for recomputing Voronoi
+                this.originalFeatures = null;
+                this.areaBoundary = null;
                 
                 // Slider drag state
                 this.draggingCursor = null;
+                
+                // Debounce timer for Voronoi recomputation
+                this.voronoiUpdateTimer = null;
                 
                 // Current basemap
                 this.currentBasemap = 'standard';
@@ -699,6 +776,8 @@
                 this.bindEvents();
                 this.initSliderControls();
                 this.initModeToggle();
+                this.initVoronoiCheckbox();
+                this.initCoalesceSlider();
             }
             
             initModeToggle() {
@@ -716,10 +795,37 @@
                         this.updateUIForMode();
                         
                         // Re-render if we have data
-                        if (this.distanceFieldLayer) {
+                        if (this.gradientFieldLayer) {
                             this.updateVisualization();
                         }
                     });
+                });
+            }
+            
+            initVoronoiCheckbox() {
+                const checkbox = document.getElementById('voronoi-overlay');
+                checkbox.addEventListener('change', (e) => {
+                    this.showVoronoiBorders = e.target.checked;
+                    
+                    // Show/hide Voronoi controls
+                    const voronoiControls = document.getElementById('voronoi-controls');
+                    if (this.showVoronoiBorders) {
+                        voronoiControls.classList.add('active');
+                    } else {
+                        voronoiControls.classList.remove('active');
+                    }
+                    
+                    this.updateVoronoiOverlay();
+                });
+            }
+            
+            initCoalesceSlider() {
+                const coalesceCursor = document.getElementById('coalesce-cursor');
+                const coalesceSlider = document.getElementById('coalesce-slider');
+                
+                coalesceCursor.addEventListener('mousedown', (e) => {
+                    this.draggingCursor = { cursor: coalesceCursor, slider: coalesceSlider, type: 'coalesce' };
+                    e.preventDefault();
                 });
             }
             
@@ -730,7 +836,7 @@
                 if (this.visualizationMode === 'distance') {
                     radiusLabel.textContent = 'Gradient radius';
                     radiusTooltip.setAttribute('data-tooltip', 'Adjust gradient radius around data points');
-                } else {
+                } else { // density
                     radiusLabel.textContent = 'Density kernel radius';
                     radiusTooltip.setAttribute('data-tooltip', 'Count features within this radius for density calculation');
                 }
@@ -887,14 +993,14 @@
                     id: 'osm',
                     type: 'raster',
                     source: 'osm'
-                }, this.map.getLayer('visualization-field') ? 'visualization-field' : undefined);
+                }, this.map.getLayer('gradient-field') ? 'gradient-field' : undefined);
                 
                 this.currentBasemap = basemapType;
             }
             
             switchPalette(paletteName) {
                 this.currentPalette = paletteName;
-                if (this.distanceFieldLayer) {
+                if (this.gradientFieldLayer) {
                     this.updateVisualization();
                 }
                 if (this.map.getLayer('features')) {
@@ -949,6 +1055,23 @@
                         this.transparency = percent / 100;
                         this.updateSliderValues();
                         this.updateVisualization();
+                    } else if (this.draggingCursor.type === 'coalesce') {
+                        // Exponential scale from 0 to 20km
+                        if (percent === 0) {
+                            this.voronoiCoalesceKm = 0;
+                        } else {
+                            const logValue = percent / 100;
+                            this.voronoiCoalesceKm = Math.pow(20 / 0.001, logValue) * 0.001;
+                            if (this.voronoiCoalesceKm < 0.01) {
+                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 1000) / 1000; // 3 decimal places
+                            } else if (this.voronoiCoalesceKm < 1) {
+                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 100) / 100; // 2 decimal places
+                            } else {
+                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 10) / 10; // 1 decimal place
+                            }
+                        }
+                        this.updateCoalesceValue();
+                        this.debouncedVoronoiUpdate();
                     }
                 });
                 
@@ -969,14 +1092,69 @@
                 document.getElementById('transparency-value').textContent = `${Math.round(this.transparency * 100)}%`;
             }
             
+            updateCoalesceValue() {
+                let coalesceText;
+                if (this.voronoiCoalesceKm === 0) {
+                    coalesceText = 'Off';
+                } else if (this.voronoiCoalesceKm < 1) {
+                    coalesceText = `${Math.round(this.voronoiCoalesceKm * 1000)} m`;
+                } else {
+                    coalesceText = `${this.voronoiCoalesceKm.toFixed(1)} km`;
+                }
+                document.getElementById('coalesce-value').textContent = coalesceText;
+            }
+            
+            debouncedVoronoiUpdate() {
+                clearTimeout(this.voronoiUpdateTimer);
+                this.voronoiUpdateTimer = setTimeout(() => {
+                    if (this.originalFeatures) {
+                        this.recomputeVoronoi();
+                    }
+                }, 200);
+            }
+            
             updateVisualization() {
-                if (!this.distanceFieldLayer) return;
+                if (!this.gradientFieldLayer) return;
                 
-                this.distanceFieldLayer.maxDistanceKm = this.maxDistanceKm;
-                this.distanceFieldLayer.transparency = this.transparency;
-                this.distanceFieldLayer.currentPalette = this.currentPalette;
-                this.distanceFieldLayer.visualizationMode = this.visualizationMode;
+                this.gradientFieldLayer.maxDistanceKm = this.maxDistanceKm;
+                this.gradientFieldLayer.transparency = this.transparency;
+                this.gradientFieldLayer.currentPalette = this.currentPalette;
+                this.gradientFieldLayer.visualizationMode = this.visualizationMode;
                 this.map.triggerRepaint();
+            }
+            
+            updateVoronoiOverlay() {
+                if (this.showVoronoiBorders && this.voronoiGeoJSON) {
+                    // Add or update Voronoi layer
+                    if (!this.map.getSource('voronoi-lines')) {
+                        this.map.addSource('voronoi-lines', {
+                            type: 'geojson',
+                            data: this.voronoiGeoJSON
+                        });
+                        
+                        this.map.addLayer({
+                            id: 'voronoi-lines',
+                            type: 'line',
+                            source: 'voronoi-lines',
+                            paint: {
+                                'line-color': '#000000',
+                                'line-width': 1,
+                                'line-opacity': 0.6
+                            }
+                        });
+                    } else {
+                        // Update existing source with new data
+                        this.map.getSource('voronoi-lines').setData(this.voronoiGeoJSON);
+                    }
+                } else {
+                    // Remove Voronoi layer
+                    if (this.map.getLayer('voronoi-lines')) {
+                        this.map.removeLayer('voronoi-lines');
+                    }
+                    if (this.map.getSource('voronoi-lines')) {
+                        this.map.removeSource('voronoi-lines');
+                    }
+                }
             }
             
             bindEvents() {
@@ -1123,6 +1301,7 @@
                     this.updateSliderValues();
                     
                     document.getElementById('advanced-controls').style.display = 'block';
+                    this.updateUIForMode(); // Make sure UI is correct for current mode
                     
                     this.showStats({
                         featureCount: features.length,
@@ -1131,6 +1310,14 @@
                     });
                     
                     const bounds = turf.bbox(boundary);
+                    
+                    // Store original features and boundary
+                    this.originalFeatures = features;
+                    this.areaBoundary = boundary;
+                    
+                    // Compute Voronoi diagram
+                    this.computeVoronoi(features, bounds, boundary);
+                    
                     this.renderWebGL(features, boundary, bounds);
                     
                     this.lastResults = { features, boundary, bounds };
@@ -1143,6 +1330,163 @@
                     this.showMessage(error.message, 'error');
                     this.hideStatus();
                 }
+            }
+            
+            coalescePoints(features, distanceKm) {
+                if (distanceKm === 0 || features.length === 0) {
+                    return features;
+                }
+                
+                // Convert km to degrees (approximate)
+                const distanceDeg = distanceKm / 111; // 1 degree ≈ 111 km
+                
+                // Complete-linkage clustering
+                const clusters = [];
+                const used = new Set();
+                
+                for (let i = 0; i < features.length; i++) {
+                    if (used.has(i)) continue;
+                    
+                    const cluster = [i];
+                    used.add(i);
+                    
+                    // Find all points that can be added to this cluster
+                    for (let j = i + 1; j < features.length; j++) {
+                        if (used.has(j)) continue;
+                        
+                        // Check if this point is within distance of ALL points in cluster
+                        let canAdd = true;
+                        for (const idx of cluster) {
+                            const dist = Math.sqrt(
+                                Math.pow(features[j].lat - features[idx].lat, 2) +
+                                Math.pow(features[j].lon - features[idx].lon, 2)
+                            );
+                            if (dist > distanceDeg) {
+                                canAdd = false;
+                                break;
+                            }
+                        }
+                        
+                        if (canAdd) {
+                            cluster.push(j);
+                            used.add(j);
+                        }
+                    }
+                    
+                    clusters.push(cluster);
+                }
+                
+                // Calculate centroids
+                const coalescedFeatures = clusters.map(cluster => {
+                    const avgLat = cluster.reduce((sum, idx) => sum + features[idx].lat, 0) / cluster.length;
+                    const avgLon = cluster.reduce((sum, idx) => sum + features[idx].lon, 0) / cluster.length;
+                    return { lat: avgLat, lon: avgLon };
+                });
+                
+                return coalescedFeatures;
+            }
+            
+            recomputeVoronoi() {
+                if (!this.originalFeatures) return;
+                
+                const bounds = turf.bbox(this.areaBoundary);
+                this.computeVoronoi(this.originalFeatures, bounds, this.areaBoundary);
+                this.updateVoronoiOverlay();
+            }
+            
+            computeVoronoi(features, bounds, boundary) {
+                // Coalesce points if needed
+                const coalescedFeatures = this.coalescePoints(features, this.voronoiCoalesceKm);
+                
+                // Update info display
+                if (this.voronoiCoalesceKm > 0) {
+                    document.getElementById('coalesce-info').textContent = 
+                        `${features.length} points → ${coalescedFeatures.length} clusters`;
+                } else {
+                    document.getElementById('coalesce-info').textContent = '';
+                }
+                
+                // Convert features to points array for Delaunay
+                const points = coalescedFeatures.map(f => [f.lon, f.lat]);
+                
+                if (points.length < 3) {
+                    // Not enough points for Voronoi
+                    this.voronoiGeoJSON = {
+                        type: 'FeatureCollection',
+                        features: []
+                    };
+                    return;
+                }
+                
+                // Use d3-delaunay to compute Voronoi
+                const delaunay = d3.Delaunay.from(points);
+                const voronoi = delaunay.voronoi(bounds);
+                
+                // Convert boundary to polygon for clipping
+                let boundaryPolygon;
+                if (boundary.type === 'Polygon') {
+                    boundaryPolygon = turf.polygon(boundary.coordinates);
+                } else if (boundary.type === 'MultiPolygon') {
+                    // Use the first polygon for simplicity
+                    boundaryPolygon = turf.polygon(boundary.coordinates[0]);
+                }
+                
+                // Convert Voronoi cells to GeoJSON lines, clipped to boundary
+                const lineFeatures = [];
+                const processedEdges = new Set();
+                
+                for (let i = 0; i < points.length; i++) {
+                    const cell = voronoi.cellPolygon(i);
+                    if (cell) {
+                        // Create a polygon from the cell
+                        const cellPolygon = turf.polygon([cell]);
+                        
+                        // Clip to boundary if available
+                        let clippedCell;
+                        try {
+                            if (boundaryPolygon) {
+                                clippedCell = turf.intersect(cellPolygon, boundaryPolygon);
+                            } else {
+                                clippedCell = cellPolygon;
+                            }
+                        } catch (e) {
+                            // If clipping fails, use original cell
+                            clippedCell = cellPolygon;
+                        }
+                        
+                        if (clippedCell && clippedCell.geometry && clippedCell.geometry.coordinates) {
+                            const coords = clippedCell.geometry.coordinates[0];
+                            // Convert polygon to line segments
+                            for (let j = 0; j < coords.length - 1; j++) {
+                                // Create a unique key for the edge
+                                const edgeKey = [
+                                    coords[j].join(','),
+                                    coords[j + 1].join(',')
+                                ].sort().join('|');
+                                
+                                // Only add each edge once
+                                if (!processedEdges.has(edgeKey)) {
+                                    processedEdges.add(edgeKey);
+                                    lineFeatures.push({
+                                        type: 'Feature',
+                                        geometry: {
+                                            type: 'LineString',
+                                            coordinates: [coords[j], coords[j + 1]]
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                this.voronoiGeoJSON = {
+                    type: 'FeatureCollection',
+                    features: lineFeatures
+                };
+                
+                // Update overlay if checkbox is checked
+                this.updateVoronoiOverlay();
             }
             
             makeBoundingBox(bbox) {
@@ -1205,8 +1549,14 @@
             
             renderWebGL(features, boundary, bounds) {
                 // Remove existing layers
-                if (this.distanceFieldLayer) {
-                    this.map.removeLayer('visualization-field');
+                if (this.gradientFieldLayer) {
+                    this.map.removeLayer('gradient-field');
+                }
+                if (this.map.getLayer('voronoi-lines')) {
+                    this.map.removeLayer('voronoi-lines');
+                }
+                if (this.map.getSource('voronoi-lines')) {
+                    this.map.removeSource('voronoi-lines');
                 }
                 if (this.map.getLayer('features')) {
                     this.map.removeLayer('features');
@@ -1219,12 +1569,69 @@
                 const currentPalette = this.currentPalette;
                 const visualizationMode = this.visualizationMode;
                 
-                // Create WebGL visualization layer with mode support
-                const visualizationLayer = {
-                    id: 'visualization-field',
+                // Process boundary for clipping
+                const boundaryCoords = [];
+                if (boundary && boundary.coordinates) {
+                    let coords;
+                    if (boundary.type === 'Polygon') {
+                        coords = boundary.coordinates[0];
+                    } else if (boundary.type === 'MultiPolygon') {
+                        // For MultiPolygon, use the largest polygon
+                        let maxArea = 0;
+                        let largestPolygon = boundary.coordinates[0][0];
+                        for (const polygon of boundary.coordinates) {
+                            const area = turf.area({ type: 'Polygon', coordinates: polygon });
+                            if (area > maxArea) {
+                                maxArea = area;
+                                largestPolygon = polygon[0];
+                            }
+                        }
+                        coords = largestPolygon;
+                    } else {
+                        coords = [];
+                    }
+                    
+                    // Simplify polygon progressively until it fits in texture
+                    const maxVertices = 4096;
+                    let tolerance = 0.0001;
+                    
+                    while (coords.length > maxVertices && tolerance < 0.1) {
+                        const simplified = turf.simplify(
+                            { type: 'Polygon', coordinates: [coords] },
+                            { tolerance: tolerance, highQuality: false }
+                        );
+                        coords = simplified.coordinates[0];
+                        tolerance *= 2;
+                    }
+                    
+                    // If still too many vertices, sample evenly
+                    if (coords.length > maxVertices) {
+                        const step = Math.ceil(coords.length / maxVertices);
+                        const sampled = [];
+                        for (let i = 0; i < coords.length; i += step) {
+                            sampled.push(coords[i]);
+                        }
+                        // Ensure polygon is closed
+                        if (sampled[sampled.length - 1] !== sampled[0]) {
+                            sampled.push(sampled[0]);
+                        }
+                        coords = sampled;
+                    }
+                    
+                    // Convert to Mercator
+                    for (const coord of coords) {
+                        const mc = maplibregl.MercatorCoordinate.fromLngLat(coord);
+                        boundaryCoords.push(mc);
+                    }
+                }
+                
+                // Create gradient field layer (distance or density)
+                const gradientLayer = {
+                    id: 'gradient-field',
                     type: 'custom',
                     features: features,
                     bounds: bounds,
+                    boundaryCoords: boundaryCoords,
                     maxDistanceKm: this.maxDistanceKm,
                     transparency: this.transparency,
                     currentPalette: currentPalette,
@@ -1247,14 +1654,56 @@
                             
                             uniform sampler2D u_features_texture;
                             uniform sampler2D u_palette_texture;
+                            uniform sampler2D u_boundary_texture;
                             uniform int u_featureCount;
+                            uniform int u_boundaryCount;
                             uniform float u_maxDistanceKm;
                             uniform float u_transparency;
                             uniform float u_textureSize;
+                            uniform float u_boundaryTextureSize;
                             uniform int u_mode; // 0 = distance, 1 = density
                             varying vec2 v_pos;
                             
+                            // Point in polygon test
+                            bool pointInPolygon(vec2 point) {
+                                if (u_boundaryCount == 0) return true;
+                                
+                                bool inside = false;
+                                
+                                for (int i = 0; i < 4096; i++) {
+                                    if (i >= u_boundaryCount) break;
+                                    
+                                    int j = i - 1;
+                                    if (i == 0) j = u_boundaryCount - 1;
+                                    
+                                    float row_i = floor(float(i) / u_boundaryTextureSize);
+                                    float col_i = mod(float(i), u_boundaryTextureSize);
+                                    vec2 texCoord_i = vec2((col_i + 0.5) / u_boundaryTextureSize, (row_i + 0.5) / u_boundaryTextureSize);
+                                    vec4 vertex_i = texture2D(u_boundary_texture, texCoord_i);
+                                    
+                                    float row_j = floor(float(j) / u_boundaryTextureSize);
+                                    float col_j = mod(float(j), u_boundaryTextureSize);
+                                    vec2 texCoord_j = vec2((col_j + 0.5) / u_boundaryTextureSize, (row_j + 0.5) / u_boundaryTextureSize);
+                                    vec4 vertex_j = texture2D(u_boundary_texture, texCoord_j);
+                                    
+                                    float xi = vertex_i.x, yi = vertex_i.y;
+                                    float xj = vertex_j.x, yj = vertex_j.y;
+                                    
+                                    if (((yi > point.y) != (yj > point.y)) &&
+                                        (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+                                        inside = !inside;
+                                    }
+                                }
+                                
+                                return inside;
+                            }
+                            
                             void main() {
+                                // Check if point is inside boundary
+                                if (!pointInPolygon(v_pos)) {
+                                    discard;
+                                }
+                                
                                 if (u_mode == 0) {
                                     // Distance field mode
                                     float minDist = 999999.0;
@@ -1284,12 +1733,13 @@
                                     
                                     float normalized = 1.0 - (distKm / u_maxDistanceKm);
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
+                                    
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
                                     
                                 } else {
                                     // Density field mode
                                     float density = 0.0;
-                                    float bandwidth = u_maxDistanceKm * 0.3; // Gaussian bandwidth as % of radius
+                                    float bandwidth = u_maxDistanceKm * 0.25;
                                     
                                     for (int i = 0; i < 5000; i++) {
                                         if (i >= u_featureCount) break;
@@ -1307,19 +1757,21 @@
                                         float distKm = dist * 40000.0;
                                         
                                         if (distKm < u_maxDistanceKm) {
-                                            // Gaussian kernel
-                                            float weight = exp(-0.5 * pow(distKm / bandwidth, 2.0));
+                                            float weight = exp(-2.0 * pow(distKm / bandwidth, 2.0));
                                             density += weight;
                                         }
                                     }
                                     
-                                    if (density < 0.01) {
+                                    if (density < 0.001) {
                                         discard;
                                     }
                                     
-                                    // Normalize density (auto-scaling)
-                                    float maxExpectedDensity = 10.0; // This will auto-adjust based on actual values
-                                    float normalized = min(1.0, density / maxExpectedDensity);
+                                    float maxDensity = 3.0;
+                                    float x = density / maxDensity;
+                                    float k = 4.0;
+                                    float sigmoid = 1.0 / (1.0 + exp(-k * (x - 0.3)));
+                                    float normalized = pow(sigmoid, 0.85);
+                                    normalized = mix(density * 0.05, normalized, smoothstep(0.0, 0.1, density));
                                     
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
@@ -1330,30 +1782,21 @@
                         const vs = gl.createShader(gl.VERTEX_SHADER);
                         gl.shaderSource(vs, vertexShader);
                         gl.compileShader(vs);
-                        if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
-                            console.error('Vertex shader error:', gl.getShaderInfoLog(vs));
-                        }
                         
                         const fs = gl.createShader(gl.FRAGMENT_SHADER);
                         gl.shaderSource(fs, fragmentShader);
                         gl.compileShader(fs);
-                        if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-                            console.error('Fragment shader error:', gl.getShaderInfoLog(fs));
-                        }
                         
                         this.program = gl.createProgram();
                         gl.attachShader(this.program, vs);
                         gl.attachShader(this.program, fs);
                         gl.linkProgram(this.program);
-                        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-                            console.error('Program link error:', gl.getProgramInfoLog(this.program));
-                        }
                         
                         this.gl = gl;
                         this.map = map;
                         
                         // Create texture for features
-                        const textureSize = 128; // 128x128 texture can hold up to 16384 points
+                        const textureSize = 128;
                         this.textureSize = textureSize;
                         
                         const textureData = new Float32Array(textureSize * textureSize * 4);
@@ -1366,8 +1809,6 @@
                             ]);
                             textureData[i * 4] = mc.x;
                             textureData[i * 4 + 1] = mc.y;
-                            textureData[i * 4 + 2] = 0;
-                            textureData[i * 4 + 3] = 1;
                         }
                         
                         this.featuresTexture = gl.createTexture();
@@ -1376,20 +1817,43 @@
                                      gl.RGBA, gl.FLOAT, textureData);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                        
+                        // Create texture for boundary
+                        const boundaryTextureSize = 64;
+                        this.boundaryTextureSize = boundaryTextureSize;
+                        
+                        const boundaryTextureData = new Float32Array(boundaryTextureSize * boundaryTextureSize * 4);
+                        const boundaryVertexCount = Math.min(this.boundaryCoords.length, 4096);
+                        
+                        for (let i = 0; i < boundaryVertexCount; i++) {
+                            boundaryTextureData[i * 4] = this.boundaryCoords[i].x;
+                            boundaryTextureData[i * 4 + 1] = this.boundaryCoords[i].y;
+                        }
+                        
+                        this.boundaryTexture = gl.createTexture();
+                        gl.bindTexture(gl.TEXTURE_2D, this.boundaryTexture);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F || gl.RGBA, boundaryTextureSize, boundaryTextureSize, 0,
+                                     gl.RGBA, gl.FLOAT, boundaryTextureData);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                        
+                        this.boundaryVertexCount = boundaryVertexCount;
                         
                         // Create palette texture
                         this.paletteTexture = gl.createTexture();
                         this.updatePaletteTexture(gl);
                         
+                        // Get uniform locations
                         this.matrixLocation = gl.getUniformLocation(this.program, 'u_matrix');
                         this.featuresTextureLocation = gl.getUniformLocation(this.program, 'u_features_texture');
                         this.paletteTextureLocation = gl.getUniformLocation(this.program, 'u_palette_texture');
+                        this.boundaryTextureLocation = gl.getUniformLocation(this.program, 'u_boundary_texture');
                         this.featureCountLocation = gl.getUniformLocation(this.program, 'u_featureCount');
+                        this.boundaryCountLocation = gl.getUniformLocation(this.program, 'u_boundaryCount');
                         this.maxDistanceKmLocation = gl.getUniformLocation(this.program, 'u_maxDistanceKm');
                         this.transparencyLocation = gl.getUniformLocation(this.program, 'u_transparency');
                         this.textureSizeLocation = gl.getUniformLocation(this.program, 'u_textureSize');
+                        this.boundaryTextureSizeLocation = gl.getUniformLocation(this.program, 'u_boundaryTextureSize');
                         this.modeLocation = gl.getUniformLocation(this.program, 'u_mode');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
                         
@@ -1413,12 +1877,9 @@
                         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 17, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, paletteData);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
                     },
                     
                     render: function(gl, matrix) {
-                        // Update palette if changed
                         if (this.lastPalette !== this.currentPalette) {
                             this.updatePaletteTexture(gl);
                             this.lastPalette = this.currentPalette;
@@ -1426,9 +1887,9 @@
                         
                         gl.useProgram(this.program);
                         
-                        const bounds = this.map.getBounds();
-                        const sw = maplibregl.MercatorCoordinate.fromLngLat([bounds.getWest(), bounds.getSouth()]);
-                        const ne = maplibregl.MercatorCoordinate.fromLngLat([bounds.getEast(), bounds.getNorth()]);
+                        const [minLon, minLat, maxLon, maxLat] = this.bounds;
+                        const sw = maplibregl.MercatorCoordinate.fromLngLat([minLon, minLat]);
+                        const ne = maplibregl.MercatorCoordinate.fromLngLat([maxLon, maxLat]);
                         
                         const positions = new Float32Array([
                             sw.x, sw.y,
@@ -1454,11 +1915,20 @@
                         gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
                         gl.uniform1i(this.paletteTextureLocation, 1);
                         
+                        gl.activeTexture(gl.TEXTURE2);
+                        gl.bindTexture(gl.TEXTURE_2D, this.boundaryTexture);
+                        gl.uniform1i(this.boundaryTextureLocation, 2);
+                        
                         gl.uniform1i(this.featureCountLocation, this.featureCount);
+                        gl.uniform1i(this.boundaryCountLocation, this.boundaryVertexCount);
                         gl.uniform1f(this.maxDistanceKmLocation, this.maxDistanceKm);
                         gl.uniform1f(this.transparencyLocation, this.transparency);
                         gl.uniform1f(this.textureSizeLocation, this.textureSize);
-                        gl.uniform1i(this.modeLocation, this.visualizationMode === 'density' ? 1 : 0);
+                        gl.uniform1f(this.boundaryTextureSizeLocation, this.boundaryTextureSize);
+                        
+                        let modeValue = 0;
+                        if (this.visualizationMode === 'density') modeValue = 1;
+                        gl.uniform1i(this.modeLocation, modeValue);
                         
                         gl.enableVertexAttribArray(this.positionLocation);
                         gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
@@ -1471,12 +1941,19 @@
                     }
                 };
                 
-                this.distanceFieldLayer = visualizationLayer;
-                this.map.addLayer(visualizationLayer);
+                this.gradientFieldLayer = gradientLayer;
+                
+                // Add gradient layer
+                this.map.addLayer(gradientLayer);
+                
+                // Add Voronoi overlay if checkbox is checked
+                if (this.showVoronoiBorders) {
+                    this.updateVoronoiOverlay();
+                }
                 
                 // Add features as dots
                 const palette = this.interpolatedPalettes[this.currentPalette];
-                const pointColor = palette[Math.floor(palette.length * 0.75)]; // Use color from 75% position
+                const pointColor = palette[Math.floor(palette.length * 0.75)];
                 
                 this.map.addSource('features', {
                     type: 'geojson',
@@ -1513,34 +1990,23 @@
             }
             
             exportPNG() {
-                // Use MapLibre's built-in export functionality with proper preserveDrawingBuffer
                 this.showStatus('Preparing PNG export...');
                 
-                // Ensure the map is fully rendered
                 this.map.once('idle', () => {
-                    // Force complete render
                     this.map.triggerRepaint();
                     
-                    // Use requestAnimationFrame to ensure the render is complete
                     requestAnimationFrame(() => {
                         try {
-                            // Get the canvas
                             const canvas = this.map.getCanvas();
-                            
-                            // Create a new canvas to ensure we capture the current state
                             const exportCanvas = document.createElement('canvas');
                             exportCanvas.width = canvas.width;
                             exportCanvas.height = canvas.height;
                             const ctx = exportCanvas.getContext('2d');
                             
-                            // Set white background (optional, remove if you want transparency)
                             ctx.fillStyle = 'white';
                             ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-                            
-                            // Draw the map canvas onto our export canvas
                             ctx.drawImage(canvas, 0, 0);
                             
-                            // Export as blob
                             exportCanvas.toBlob(blob => {
                                 if (!blob) {
                                     this.showMessage('Failed to export PNG', 'error');
@@ -1557,7 +2023,7 @@
                                 
                                 this.hideStatus();
                                 this.showMessage('PNG exported successfully', 'info');
-                            }, 'image/png', 1.0); // Use maximum quality
+                            }, 'image/png', 1.0);
                         } catch (error) {
                             console.error('PNG export error:', error);
                             this.showMessage('Failed to export PNG: ' + error.message, 'error');
@@ -1566,7 +2032,6 @@
                     });
                 });
                 
-                // Trigger the idle event
                 this.map.triggerRepaint();
             }
             
