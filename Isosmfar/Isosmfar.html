@@ -41,12 +41,12 @@
   },
   "applicationCategory": "MapApplication",
   "operatingSystem": "Web",
-  "softwareVersion": "1.3",
+  "softwareVersion": "1.0",
   "description": "Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
   "offers": {
     "@type": "Offer",
     "price": "0",
-    "priceCurrency": "EUR"
+    "priceCurrency": "USD"
   }
 }
 </script>
@@ -680,7 +680,7 @@
                     <label>Filter query</label>
                     <input type="text" id="query" value="amenity=hospital" placeholder='amenity=hospital or [shop=supermarket]'>
                     <div class="help-text">
-                        Openstreetmap key=value or <a href="https://liotier.github.io/Geogizmos/Isosmfar/IsosmfarOverpassQLfilterSyntax.html" target="_blank">Overpass QL filter</a>
+                        key=value or <a href="https://liotier.github.io/Geogizmos/Isosmfar/IsosmfarOverpassQLfilterSyntax.html" target="_blank">Overpass QL filter</a>
                     </div>
                 </div>
                 
@@ -1815,6 +1815,12 @@
                 // Remove existing layers
                 if (this.gradientFieldLayer) {
                     this.map.removeLayer('gradient-field');
+                }
+                if (this.map.getLayer('boundary-outline')) {
+                    this.map.removeLayer('boundary-outline');
+                }
+                if (this.map.getSource('boundary-outline')) {
+                    this.map.removeSource('boundary-outline');
                 }
                 if (this.map.getLayer('voronoi-lines')) {
                     this.map.removeLayer('voronoi-lines');
