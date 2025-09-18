@@ -74,6 +74,7 @@ Isosmfar showcases several sophisticated web development techniques:
 - **WebGL** – hardware-accelerated graphics rendering
 - **[MapLibre GL JS](https://maplibre.org/)** – high-performance map display
 - **[Turf.js](https://turfjs.org/)** – spatial analysis and area calculations
+- **[D3-Delaunay](https://d3js.org/d3-delaunay/voronoi)** - Voronoi diagram
 - **[Overpass API](https://overpass-api.de/)** – OSM feature queries
 - **[Nominatim](https://nominatim.org/)** – geocoding
 - **Custom GLSL Shaders** – GPU-based distance field computation
