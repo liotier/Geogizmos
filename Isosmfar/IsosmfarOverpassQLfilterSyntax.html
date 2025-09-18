@@ -1,53 +1,148 @@
-<h1 class="text-2xl font-bold mt-1 text-text-100">Isosmfar Overpass QL Filter Syntax Guide</h1>
-<p class="whitespace-normal break-words">Isosmfar uses Overpass QL filter syntax to query OpenStreetMap features. You can use either simple key=value notation or the full Overpass QL filter syntax with brackets.</p>
-<h2 class="text-xl font-bold text-text-100 mt-1 -mb-0.5">Simple Format (no brackets needed)</h2>
-<p class="whitespace-normal break-words">For basic queries, just type the key=value pair directly:</p>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">amenity=hospital</code> - finds all hospitals</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">shop=supermarket</code> - finds all supermarkets</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">highway=bus_stop</code> - finds all bus stops</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">leisure=park</code> - finds all parks</li>
-</ul>
-<h2 class="text-xl font-bold text-text-100 mt-1 -mb-0.5">Advanced Filter Syntax</h2>
-<p class="whitespace-normal break-words">For complex queries, use brackets and the full Overpass QL syntax:</p>
-<h3 class="text-lg font-bold text-text-100 mt-1 -mb-1.5">Multiple Conditions</h3>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[amenity=school][name~"Saint"]</code> - schools with "Saint" in the name</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[shop=bakery][opening_hours]</code> - bakeries that have opening hours defined</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[amenity=recycling]["recycling:glass"=yes]</code> - recycling points that accept glass</li>
-</ul>
-<h3 class="text-lg font-bold text-text-100 mt-1 -mb-1.5">Pattern Matching with Regular Expressions</h3>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[amenity~"school|university|college"]</code> - any educational institution</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[name~"Hospital|Clinic"]</code> - features with Hospital or Clinic in name</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[name~"^Saint"]</code> - names starting with "Saint"</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[name~"Street$"]</code> - names ending with "Street"</li>
-</ul>
-<h3 class="text-lg font-bold text-text-100 mt-1 -mb-1.5">Special Characters in Keys</h3>
-<p class="whitespace-normal break-words">Keys containing colons, dashes, or other special characters must be quoted:</p>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">["recycling:glass"=yes]</code></li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">["addr:housenumber"]</code></li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">["name:en"~"Hospital"]</code></li>
-</ul>
-<h2 class="text-xl font-bold text-text-100 mt-1 -mb-0.5">Important Limitations</h2>
-<p class="whitespace-normal break-words"><strong>Comparison operators (&lt;, &gt;, &lt;=, &gt;=) are NOT supported</strong> in the basic Overpass filter syntax used by Isosmfar. These operators only work in specific Overpass contexts that aren't available here. For numeric filtering, you would need to use regular expressions to match specific ranges.</p>
-<p class="whitespace-normal break-words">For example, to find features with maxspeed between 30-50, you'd need regex patterns like:</p>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[maxspeed~"^(30|40|50)$"]</code> - matches exactly 30, 40, or 50</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[maxspeed~"^[34][0-9]$"]</code> - matches 30-49</li>
-</ul>
-<h2 class="text-xl font-bold text-text-100 mt-1 -mb-0.5">Combining Simple and Advanced</h2>
-<p class="whitespace-normal break-words">You can type simple queries and Isosmfar will automatically add the brackets:</p>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words">Type: <code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">amenity=hospital</code> → Becomes: <code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[amenity=hospital]</code></li>
-<li class="whitespace-normal break-words">Type: <code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">amenity=school and name~Saint</code> → Becomes: <code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[amenity=school][name~Saint]</code></li>
-</ul>
-<h2 class="text-xl font-bold text-text-100 mt-1 -mb-0.5">Common Examples</h2>
-<ul class="[&amp;:not(:last-child)_ul]:pb-1 [&amp;:not(:last-child)_ol]:pb-1 list-disc space-y-1.5 pl-7">
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">amenity=restaurant</code> - all restaurants</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[amenity=restaurant][cuisine=italian]</code> - Italian restaurants</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[tourism~"hotel|motel|hostel"]</code> - accommodation options</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[emergency=fire_hydrant]</code> - fire hydrants</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[highway=residential][name]</code> - named residential streets</li>
-<li class="whitespace-normal break-words"><code class="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem]">[historic~"monument|memorial"]</code> - historical features</li>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isosmfar Overpass QL Filter Syntax Guide</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; }
+        h3 { color: #7f8c8d; }
+        code {
+            background: #f4f4f4;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        ul { margin: 10px 0; }
+        li { margin: 8px 0; }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px 15px;
+            margin: 20px 0;
+        }
+        a { color: #3498db; }
+    </style>
+</head>
+<body>
+    <h1>Isosmfar Overpass QL Filter Syntax Guide</h1>
+    
+    <p>Isosmfar uses <a href="https://wiki.openstreetmap.org/wiki/Overpass_API/Overpass_QL#Filters">Overpass QL filter syntax</a> to query Openstreetmap features. You can use either simple key=value notation or the full <a href="https://wiki.openstreetmap.org/wiki/Overpass_API/Overpass_QL#Filters" target="_blank">Overpass QL filter syntax</a> with brackets.</p>
+
+    <h2>Simple Format (no brackets needed)</h2>
+    <p>For basic queries, just type the key=value pair directly:</p>
+    <ul>
+        <li><code>amenity=hospital</code> - finds all hospitals</li>
+        <li><code>shop=supermarket</code> - finds all supermarkets</li>
+        <li><code>highway=bus_stop</code> - finds all bus stops</li>
+        <li><code>leisure=park</code> - finds all parks</li>
+        <li><code>building=school</code> - finds all school buildings</li>
+    </ul>
+
+    <h2>Advanced Filter Syntax</h2>
+    
+    <h3>Multiple Conditions</h3>
+    <p>Combine multiple filters by placing them in sequence:</p>
+    <ul>
+        <li><code>[amenity=school][name~"Saint"]</code> - schools with "Saint" in the name</li>
+        <li><code>[shop=bakery][opening_hours]</code> - bakeries that have opening hours defined</li>
+        <li><code>[amenity=recycling]["recycling:glass"=yes]</code> - recycling points that accept glass</li>
+        <li><code>[highway=residential][maxspeed]</code> - residential streets with speed limits</li>
+    </ul>
+
+    <h3>Pattern Matching with Regular Expressions</h3>
+    <p>Use the tilde (~) operator for regex pattern matching:</p>
+    <ul>
+        <li><code>[amenity~"school|university|college"]</code> - any educational institution</li>
+        <li><code>[name~"Hospital|Clinic"]</code> - features with Hospital or Clinic in name</li>
+        <li><code>[name~"^Saint"]</code> - names starting with "Saint"</li>
+        <li><code>[name~"Street$"]</code> - names ending with "Street"</li>
+        <li><code>[ref~"^A[0-9]+"]</code> - references starting with A followed by numbers</li>
+    </ul>
+
+    <h3>Special Characters in Keys</h3>
+    <p>Keys containing colons, dashes, or other special characters must be quoted:</p>
+    <ul>
+        <li><code>["recycling:glass"=yes]</code></li>
+        <li><code>["addr:housenumber"]</code></li>
+        <li><code>["name:en"~"Hospital"]</code></li>
+        <li><code>["roof:shape"=flat]</code></li>
+    </ul>
+
+    <h3>Checking for Tag Existence</h3>
+    <ul>
+        <li><code>[opening_hours]</code> - has opening hours tag (any value)</li>
+        <li><code>[!parking]</code> - does NOT have parking tag</li>
+        <li><code>[name][!description]</code> - has name but no description</li>
+    </ul>
+
+    <div class="warning">
+        <strong>Important Limitation:</strong> Comparison operators (&lt;, &gt;, &lt;=, &gt;=) are NOT supported in the basic Overpass filter syntax used by Isosmfar. These operators only work in specific Overpass contexts like conditional statements (if:) that aren't available here.
+    </div>
+
+    <h2>Combining Simple and Advanced</h2>
+    <p>You can type simple queries and Isosmfar will automatically add the brackets:</p>
+    <ul>
+        <li>Type: <code>amenity=hospital</code> → Becomes: <code>[amenity=hospital]</code></li>
+        <li>Type: <code>amenity=school and name~Saint</code> → Becomes: <code>[amenity=school][name~Saint]</code></li>
+    </ul>
+
+    <h2>Common Examples by Category</h2>
+    
+    <h3>Healthcare</h3>
+    <ul>
+        <li><code>amenity=hospital</code> - hospitals</li>
+        <li><code>amenity=clinic</code> - clinics</li>
+        <li><code>amenity=pharmacy</code> - pharmacies</li>
+        <li><code>[amenity=doctors]</code> - doctor offices</li>
+        <li><code>[healthcare~".*"]</code> - any healthcare facility</li>
+    </ul>
+
+    <h3>Education</h3>
+    <ul>
+        <li><code>amenity=school</code> - schools</li>
+        <li><code>amenity=university</code> - universities</li>
+        <li><code>amenity=kindergarten</code> - kindergartens</li>
+        <li><code>[amenity=school]["school:type"=primary]</code> - primary schools only</li>
+    </ul>
+
+    <h3>Shopping</h3>
+    <ul>
+        <li><code>shop=supermarket</code> - supermarkets</li>
+        <li><code>[shop]["organic"=yes]</code> - organic shops</li>
+        <li><code>[shop~"bakery|butcher|greengrocer"]</code> - fresh food shops</li>
+    </ul>
+
+    <h3>Transportation</h3>
+    <ul>
+        <li><code>highway=bus_stop</code> - bus stops</li>
+        <li><code>railway=station</code> - train stations</li>
+        <li><code>amenity=parking</code> - parking areas</li>
+        <li><code>[highway=motorway]</code> - motorways/highways</li>
+    </ul>
+
+    <h3>Emergency Services</h3>
+    <ul>
+        <li><code>emergency=fire_hydrant</code> - fire hydrants</li>
+        <li><code>amenity=fire_station</code> - fire stations</li>
+        <li><code>amenity=police</code> - police stations</li>
+        <li><code>[emergency=defibrillator]</code> - defibrillators</li>
+    </ul>
+
+</body>
+</html>
