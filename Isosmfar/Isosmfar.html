@@ -8,7 +8,7 @@
     <meta name="description" content="Interactive web app to visualize distance, density and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
 
     <!-- Open Graph for social previews -->
-    <meta property="og:title" content="Isosmfar — Interactive Openstreetmap Heatmap Visualization">
+    <meta property="og:title" content="Isosmfar – Interactive Openstreetmap Heatmap Visualization">
     <meta property="og:description" content="Interactive web app to visualize distance, density and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html">
@@ -41,18 +41,18 @@
   },
   "applicationCategory": "MapApplication",
   "operatingSystem": "Web",
-  "softwareVersion": "1.0",
+  "softwareVersion": "1.3",
   "description": "Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
   "offers": {
     "@type": "Offer",
     "price": "0",
-    "priceCurrency": "USD"
+    "priceCurrency": "EUR"
   }
 }
 </script>
 
     
-    <title>Isosmfar — Interactive Openstreetmap Heatmap Visualization</title>
+    <title>Isosmfar – Interactive Openstreetmap Heatmap Visualization</title>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
         :root {
@@ -214,12 +214,19 @@
         }
         
         .toggle-buttons {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 2px;
         }
         
+        /* Responsive: single column on narrow screens */
+        @media (max-width: 360px) {
+            .toggle-buttons {
+                grid-template-columns: 1fr;
+            }
+        }
+        
         .toggle-button {
-            flex: 1;
             padding: 8px 4px;
             border: 1px solid var(--border);
             background: white;
@@ -227,14 +234,67 @@
             font-size: 12px;
             text-align: center;
             transition: all 0.2s;
+            position: relative;
         }
         
-        .toggle-button:first-child {
-            border-radius: 4px 0 0 4px;
+        .toggle-button[data-tooltip]::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            font-size: 11px;
+            line-height: 1.4;
+            border-radius: 4px;
+            white-space: normal;
+            width: 200px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            margin-bottom: 8px;
+            z-index: 1000;
+            text-align: left;
         }
         
-        .toggle-button:last-child {
-            border-radius: 0 4px 4px 0;
+        .toggle-button[data-tooltip]:hover::after {
+            opacity: 1;
+        }
+        
+        .toggle-button:nth-child(1) {
+            border-radius: 4px 0 0 0;
+        }
+        
+        .toggle-button:nth-child(2) {
+            border-radius: 0 4px 0 0;
+        }
+        
+        .toggle-button:nth-child(3) {
+            border-radius: 0 0 0 4px;
+        }
+        
+        .toggle-button:nth-child(4) {
+            border-radius: 0 0 4px 0;
+        }
+        
+        @media (max-width: 360px) {
+            .toggle-button:nth-child(1) {
+                border-radius: 4px 4px 0 0;
+            }
+            
+            .toggle-button:nth-child(2) {
+                border-radius: 0;
+            }
+            
+            .toggle-button:nth-child(3) {
+                border-radius: 0;
+            }
+            
+            .toggle-button:nth-child(4) {
+                border-radius: 0 0 4px 4px;
+            }
         }
         
         .toggle-button.active {
@@ -485,6 +545,15 @@
             margin-top: 5px;
         }
         
+        /* Mode-specific controls */
+        .mode-specific-controls {
+            display: none;
+        }
+        
+        .mode-specific-controls.active {
+            display: block;
+        }
+        
         /* Better attribution styling */
         .maplibregl-ctrl-attrib {
             background: rgba(255, 255, 255, 0.3) !important;
@@ -590,12 +659,14 @@
             <div id="controls">
                 <div id="messages"></div>
                 
-                <!-- Mode toggle (now only Distance and Density) -->
+                <!-- Mode toggle (now with 4 options in 2x2 grid) -->
                 <div class="mode-toggle">
                     <label class="mode-toggle-label">Visualization mode</label>
                     <div class="toggle-buttons">
-                        <div class="toggle-button active" data-mode="distance">Distance Field</div>
-                        <div class="toggle-button" data-mode="density">Density Field</div>
+                        <div class="toggle-button active" data-mode="distance" data-tooltip="Shows how far away you are from the nearest feature. Darker colors mean closer proximity. Great for finding underserved areas.">Distance Field</div>
+                        <div class="toggle-button" data-mode="density" data-tooltip="Shows concentration of features in an area. Brighter colors indicate more features nearby. Perfect for identifying hotspots.">Density Field</div>
+                        <div class="toggle-button" data-mode="idw" data-tooltip="Inverse Distance Weighting: A classic GIS interpolation method. Creates smooth gradients based on weighted influence from all nearby points.">IDW</div>
+                        <div class="toggle-button" data-mode="heat" data-tooltip="Simulates heat diffusing from source points. Creates smooth, natural-looking heat maps commonly used in data visualization.">Heat Diffusion</div>
                     </div>
                 </div>
                 
@@ -609,7 +680,7 @@
                     <label>Filter query</label>
                     <input type="text" id="query" value="amenity=hospital" placeholder='amenity=hospital or [shop=supermarket]'>
                     <div class="help-text">
-                        key=value or <a href="https://liotier.github.io/Geogizmos/Isosmfar/IsosmfarOverpassQLfilterSyntax.html" target="_blank">Overpass QL filter</a>
+                        Openstreetmap key=value or <a href="https://liotier.github.io/Geogizmos/Isosmfar/IsosmfarOverpassQLfilterSyntax.html" target="_blank">Overpass QL filter</a>
                     </div>
                 </div>
                 
@@ -675,6 +746,40 @@
                         </div>
                     </div>
                     
+                    <!-- Mode-specific controls for IDW -->
+                    <div class="mode-specific-controls" id="idw-controls">
+                        <label class="slider-label tooltip" data-tooltip="Higher power = sharper falloff" style="margin: 15px 0 5px 0;">IDW Power</label>
+                        <div class="slider-container">
+                            <div class="slider-track" id="idw-power-slider">
+                                <div class="slider-cursor" id="idw-power-cursor" style="left: 33%;"></div>
+                            </div>
+                            <div class="slider-labels">
+                                <span>1.0</span>
+                                <span>5.0</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <span class="slider-value" id="idw-power-value">2.0</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Mode-specific controls for Heat Diffusion -->
+                    <div class="mode-specific-controls" id="heat-controls">
+                        <label class="slider-label tooltip" data-tooltip="Control heat spread (% of radius)" style="margin: 15px 0 5px 0;">Heat Bandwidth</label>
+                        <div class="slider-container">
+                            <div class="slider-track" id="heat-bandwidth-slider">
+                                <div class="slider-cursor" id="heat-bandwidth-cursor" style="left: 30%;"></div>
+                            </div>
+                            <div class="slider-labels">
+                                <span>10%</span>
+                                <span>100%</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <span class="slider-value" id="heat-bandwidth-value">30%</span>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- Voronoi coalesce slider (shown only when Voronoi is checked) -->
                     <div class="voronoi-controls" id="voronoi-controls">
                         <label class="slider-label tooltip" data-tooltip="Merge nearby points before computing Voronoi cells" style="margin: 15px 0 5px 0;">Voronoi coalesce distance</label>
@@ -730,7 +835,11 @@
                 this.searchTimeout = null;
                 
                 // Visualization mode
-                this.visualizationMode = 'distance'; // 'distance' or 'density'
+                this.visualizationMode = 'distance'; // 'distance', 'density', 'idw', or 'heat'
+                
+                // Mode-specific parameters
+                this.idwPower = 2.0;
+                this.heatBandwidth = 0.3; // as percentage of radius
                 
                 // Voronoi overlay state
                 this.showVoronoiBorders = false;
@@ -786,6 +895,7 @@
                 this.initModeToggle();
                 this.initVoronoiCheckbox();
                 this.initCoalesceSlider();
+                this.initModeSpecificSliders();
             }
             
             initModeToggle() {
@@ -807,6 +917,26 @@
                             this.updateVisualization();
                         }
                     });
+                });
+            }
+            
+            initModeSpecificSliders() {
+                // IDW Power slider
+                const idwPowerCursor = document.getElementById('idw-power-cursor');
+                const idwPowerSlider = document.getElementById('idw-power-slider');
+                
+                idwPowerCursor.addEventListener('mousedown', (e) => {
+                    this.draggingCursor = { cursor: idwPowerCursor, slider: idwPowerSlider, type: 'idw-power' };
+                    e.preventDefault();
+                });
+                
+                // Heat Bandwidth slider
+                const heatBandwidthCursor = document.getElementById('heat-bandwidth-cursor');
+                const heatBandwidthSlider = document.getElementById('heat-bandwidth-slider');
+                
+                heatBandwidthCursor.addEventListener('mousedown', (e) => {
+                    this.draggingCursor = { cursor: heatBandwidthCursor, slider: heatBandwidthSlider, type: 'heat-bandwidth' };
+                    e.preventDefault();
                 });
             }
             
@@ -841,12 +971,25 @@
                 const radiusLabel = document.getElementById('radius-label');
                 const radiusTooltip = radiusLabel;
                 
+                // Hide all mode-specific controls
+                document.querySelectorAll('.mode-specific-controls').forEach(el => {
+                    el.classList.remove('active');
+                });
+                
                 if (this.visualizationMode === 'distance') {
                     radiusLabel.textContent = 'Gradient radius';
                     radiusTooltip.setAttribute('data-tooltip', 'Adjust gradient radius around data points');
-                } else { // density
+                } else if (this.visualizationMode === 'density') {
                     radiusLabel.textContent = 'Density kernel radius';
                     radiusTooltip.setAttribute('data-tooltip', 'Count features within this radius for density calculation');
+                } else if (this.visualizationMode === 'idw') {
+                    radiusLabel.textContent = 'IDW influence radius';
+                    radiusTooltip.setAttribute('data-tooltip', 'Maximum distance for inverse distance weighting');
+                    document.getElementById('idw-controls').classList.add('active');
+                } else if (this.visualizationMode === 'heat') {
+                    radiusLabel.textContent = 'Heat diffusion radius';
+                    radiusTooltip.setAttribute('data-tooltip', 'Maximum heat spread from source points');
+                    document.getElementById('heat-controls').classList.add('active');
                 }
             }
             
@@ -1080,6 +1223,18 @@
                         }
                         this.updateCoalesceValue();
                         this.debouncedVoronoiUpdate();
+                    } else if (this.draggingCursor.type === 'idw-power') {
+                        // Linear scale from 1.0 to 5.0
+                        this.idwPower = 1.0 + (percent / 100) * 4.0;
+                        this.idwPower = Math.round(this.idwPower * 10) / 10;
+                        document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
+                        this.updateVisualization();
+                    } else if (this.draggingCursor.type === 'heat-bandwidth') {
+                        // Linear scale from 0.1 to 1.0 (10% to 100%)
+                        this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
+                        this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
+                        document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
+                        this.updateVisualization();
                     }
                 });
                 
@@ -1128,6 +1283,8 @@
                 this.gradientFieldLayer.transparency = this.transparency;
                 this.gradientFieldLayer.currentPalette = this.currentPalette;
                 this.gradientFieldLayer.visualizationMode = this.visualizationMode;
+                this.gradientFieldLayer.idwPower = this.idwPower;
+                this.gradientFieldLayer.heatBandwidth = this.heatBandwidth;
                 this.map.triggerRepaint();
             }
             
@@ -1302,9 +1459,6 @@
                 // Process the query with improved logic
                 let query = this.processOverpassFilter(rawQuery);
                 
-                // Log for debugging
-                console.log(`Input: "${rawQuery}" → Processed: "${query}"`);
-                
                 try {
                     this.showStatus('Searching for area...');
                     
@@ -1341,7 +1495,13 @@
                         throw new Error('No features found matching the query');
                     }
                     
-                    const modeText = this.visualizationMode === 'distance' ? 'distance field' : 'density field';
+                    const modeTextMap = {
+                        'distance': 'distance field',
+                        'density': 'density field',
+                        'idw': 'inverse distance weighting',
+                        'heat': 'heat diffusion'
+                    };
+                    const modeText = modeTextMap[this.visualizationMode];
                     this.showStatus(`Found ${features.length} features. Creating ${modeText}...`);
                     
                     // Calculate max distance limit based on area
@@ -1483,10 +1643,6 @@
                 const delaunay = d3.Delaunay.from(points);
                 const voronoi = delaunay.voronoi(bounds);
                 
-                // Debug: log boundary info
-                console.log('Boundary type:', boundary.type);
-                console.log('Boundary coordinates length:', boundary.coordinates[0]?.length || 0);
-                
                 // Convert boundary to proper turf feature for clipping
                 let boundaryFeature;
                 try {
@@ -1506,8 +1662,6 @@
                 // Convert Voronoi cells to GeoJSON lines, clipped to boundary
                 const lineFeatures = [];
                 const processedEdges = new Set();
-                let successfulClips = 0;
-                let failedClips = 0;
                 
                 for (let i = 0; i < points.length; i++) {
                     const cell = voronoi.cellPolygon(i);
@@ -1529,14 +1683,10 @@
                                     const intersection = turf.intersect(cellPolygon, boundaryFeature);
                                     if (intersection && intersection.geometry) {
                                         clippedCell = intersection;
-                                        successfulClips++;
                                     } else {
-                                        failedClips++;
                                         continue;
                                     }
                                 } catch (e) {
-                                    console.warn(`Failed to clip Voronoi cell ${i}:`, e.message);
-                                    failedClips++;
                                     // Fall back to using unclipped cell
                                     clippedCell = cellPolygon;
                                 }
@@ -1593,8 +1743,6 @@
                         }
                     }
                 }
-                
-                console.log(`Voronoi clipping results: ${successfulClips} successful, ${failedClips} failed/skipped`);
                 
                 this.voronoiGeoJSON = {
                     type: 'FeatureCollection',
@@ -1684,6 +1832,8 @@
                 const interpolatedPalettes = this.interpolatedPalettes;
                 const currentPalette = this.currentPalette;
                 const visualizationMode = this.visualizationMode;
+                const idwPower = this.idwPower;
+                const heatBandwidth = this.heatBandwidth;
                 
                 // Process boundary for clipping
                 const boundaryCoords = [];
@@ -1741,7 +1891,7 @@
                     }
                 }
                 
-                // Create gradient field layer (distance or density)
+                // Create gradient field layer
                 const gradientLayer = {
                     id: 'gradient-field',
                     type: 'custom',
@@ -1752,6 +1902,8 @@
                     transparency: this.transparency,
                     currentPalette: currentPalette,
                     visualizationMode: visualizationMode,
+                    idwPower: idwPower,
+                    heatBandwidth: heatBandwidth,
                     
                     onAdd: function(map, gl) {
                         const vertexShader = `
@@ -1777,7 +1929,9 @@
                             uniform float u_transparency;
                             uniform float u_textureSize;
                             uniform float u_boundaryTextureSize;
-                            uniform int u_mode; // 0 = distance, 1 = density
+                            uniform int u_mode; // 0=distance, 1=density, 2=idw, 3=heat
+                            uniform float u_idwPower;
+                            uniform float u_heatBandwidth;
                             varying vec2 v_pos;
                             
                             // Point in polygon test
@@ -1852,7 +2006,7 @@
                                     
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
                                     
-                                } else {
+                                } else if (u_mode == 1) {
                                     // Density field mode
                                     float density = 0.0;
                                     float bandwidth = u_maxDistanceKm * 0.25;
@@ -1888,6 +2042,86 @@
                                     float sigmoid = 1.0 / (1.0 + exp(-k * (x - 0.3)));
                                     float normalized = pow(sigmoid, 0.85);
                                     normalized = mix(density * 0.05, normalized, smoothstep(0.0, 0.1, density));
+                                    
+                                    vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
+                                    gl_FragColor = vec4(color.rgb, u_transparency * normalized);
+                                    
+                                } else if (u_mode == 2) {
+                                    // IDW (Inverse Distance Weighting) mode
+                                    float sumWeights = 0.0;
+                                    float sumValues = 0.0;
+                                    
+                                    for (int i = 0; i < 5000; i++) {
+                                        if (i >= u_featureCount) break;
+                                        
+                                        float row = floor(float(i) / u_textureSize);
+                                        float col = mod(float(i), u_textureSize);
+                                        vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
+                                        
+                                        vec4 featureData = texture2D(u_features_texture, texCoord);
+                                        vec2 feature = featureData.xy;
+                                        
+                                        float dx = v_pos.x - feature.x;
+                                        float dy = v_pos.y - feature.y;
+                                        float dist = sqrt(dx * dx + dy * dy);
+                                        float distKm = dist * 40000.0;
+                                        
+                                        if (distKm < u_maxDistanceKm) {
+                                            // Avoid division by zero at exact point locations
+                                            if (distKm < 0.001) distKm = 0.001;
+                                            
+                                            float weight = 1.0 / pow(distKm, u_idwPower);
+                                            sumWeights += weight;
+                                            sumValues += weight * (1.0 - distKm / u_maxDistanceKm);
+                                        }
+                                    }
+                                    
+                                    if (sumWeights < 0.001) {
+                                        discard;
+                                    }
+                                    
+                                    float normalized = sumValues / sumWeights;
+                                    vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
+                                    
+                                    gl_FragColor = vec4(color.rgb, u_transparency * normalized);
+                                    
+                                } else if (u_mode == 3) {
+                                    // Heat Diffusion mode (Gaussian kernel)
+                                    float heat = 0.0;
+                                    float bandwidth = u_maxDistanceKm * u_heatBandwidth;
+                                    
+                                    for (int i = 0; i < 5000; i++) {
+                                        if (i >= u_featureCount) break;
+                                        
+                                        float row = floor(float(i) / u_textureSize);
+                                        float col = mod(float(i), u_textureSize);
+                                        vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
+                                        
+                                        vec4 featureData = texture2D(u_features_texture, texCoord);
+                                        vec2 feature = featureData.xy;
+                                        
+                                        float dx = v_pos.x - feature.x;
+                                        float dy = v_pos.y - feature.y;
+                                        float dist = sqrt(dx * dx + dy * dy);
+                                        float distKm = dist * 40000.0;
+                                        
+                                        if (distKm < u_maxDistanceKm) {
+                                            // Gaussian kernel
+                                            float gaussian = exp(-0.5 * pow(distKm / bandwidth, 2.0));
+                                            heat += gaussian;
+                                        }
+                                    }
+                                    
+                                    if (heat < 0.001) {
+                                        discard;
+                                    }
+                                    
+                                    // Normalize using sigmoid function for better visualization
+                                    float maxHeat = 2.5;
+                                    float x = heat / maxHeat;
+                                    float k = 3.0;
+                                    float sigmoid = 1.0 / (1.0 + exp(-k * (x - 0.4)));
+                                    float normalized = pow(sigmoid, 0.9);
                                     
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
@@ -1971,6 +2205,8 @@
                         this.textureSizeLocation = gl.getUniformLocation(this.program, 'u_textureSize');
                         this.boundaryTextureSizeLocation = gl.getUniformLocation(this.program, 'u_boundaryTextureSize');
                         this.modeLocation = gl.getUniformLocation(this.program, 'u_mode');
+                        this.idwPowerLocation = gl.getUniformLocation(this.program, 'u_idwPower');
+                        this.heatBandwidthLocation = gl.getUniformLocation(this.program, 'u_heatBandwidth');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
                         
                         this.featureCount = maxFeatures;
@@ -2041,9 +2277,13 @@
                         gl.uniform1f(this.transparencyLocation, this.transparency);
                         gl.uniform1f(this.textureSizeLocation, this.textureSize);
                         gl.uniform1f(this.boundaryTextureSizeLocation, this.boundaryTextureSize);
+                        gl.uniform1f(this.idwPowerLocation, this.idwPower);
+                        gl.uniform1f(this.heatBandwidthLocation, this.heatBandwidth);
                         
                         let modeValue = 0;
                         if (this.visualizationMode === 'density') modeValue = 1;
+                        else if (this.visualizationMode === 'idw') modeValue = 2;
+                        else if (this.visualizationMode === 'heat') modeValue = 3;
                         gl.uniform1i(this.modeLocation, modeValue);
                         
                         gl.enableVertexAttribArray(this.positionLocation);
@@ -2180,3 +2420,4 @@
     </script>
 </body>
 </html>
+                        
