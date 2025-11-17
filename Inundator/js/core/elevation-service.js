@@ -1,0 +1,228 @@
+/**
+ * Elevation Service
+ * Handles DEM tile fetching and elevation queries
+ */
+
+import { CONFIG } from '../config.js';
+
+export class ElevationService {
+    constructor() {
+        this.tileCache = new Map();
+    }
+
+    /**
+     * Get elevation at a single point
+     */
+    async getElevationAtPoint(lng, lat) {
+        const zoom = CONFIG.dem.queryZoom;
+        const tileSize = CONFIG.dem.tileSize;
+
+        // Convert to tile coordinates
+        const tileCoords = this.lngLatToTile(lng, lat, zoom);
+        const { tileX, tileY } = tileCoords;
+
+        // Fetch tile if not cached
+        const tileKey = `${zoom}/${tileX}/${tileY}`;
+
+        if (!this.tileCache.has(tileKey)) {
+            const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
+
+            try {
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const imageData = await this.loadImageData(blob);
+                this.tileCache.set(tileKey, imageData);
+            } catch (error) {
+                console.warn(`Failed to fetch tile ${tileKey}:`, error);
+                return CONFIG.dem.noDataValue;
+            }
+        }
+
+        // Get pixel position within tile
+        const pixelCoords = this.lngLatToPixel(lng, lat, zoom, tileX, tileY);
+        const { pixelX, pixelY } = pixelCoords;
+
+        const px = Math.floor(pixelX);
+        const py = Math.floor(pixelY);
+
+        const imageData = this.tileCache.get(tileKey);
+        const idx = (py * tileSize + px) * 4;
+
+        const r = imageData.data[idx];
+        const g = imageData.data[idx + 1];
+        const b = imageData.data[idx + 2];
+
+        // Decode Terrarium format: elevation = (R * 256 + G + B / 256) - 32768
+        const elevation = (r * 256 + g + b / 256) - 32768;
+
+        return elevation;
+    }
+
+    /**
+     * Fetch elevations for multiple points
+     */
+    async fetchElevations(points) {
+        const elevations = [];
+
+        for (const point of points) {
+            const [lng, lat] = point;
+            const elevation = await this.getElevationAtPoint(lng, lat);
+            elevations.push(elevation);
+        }
+
+        return elevations;
+    }
+
+    /**
+     * Fetch DEM data for a geographic bounding box
+     */
+    async fetchDEMData(bounds, progressCallback = null) {
+        const [west, south, east, north] = bounds;
+
+        // Determine zoom level based on area
+        const area = (east - west) * (north - south) * 111 * 111; // Rough km²
+        const zoom = area < CONFIG.dem.adaptiveZoom.smallAreaThreshold
+            ? CONFIG.dem.adaptiveZoom.smallAreaZoom
+            : CONFIG.dem.adaptiveZoom.largeAreaZoom;
+
+        // Calculate tile bounds
+        const n = Math.pow(2, zoom);
+        const tileWest = Math.floor((west + 180) / 360 * n);
+        const tileEast = Math.floor((east + 180) / 360 * n);
+        const tileNorth = Math.floor((1 - Math.log(Math.tan(north * Math.PI / 180) +
+            1 / Math.cos(north * Math.PI / 180)) / Math.PI) / 2 * n);
+        const tileSouth = Math.floor((1 - Math.log(Math.tan(south * Math.PI / 180) +
+            1 / Math.cos(south * Math.PI / 180)) / Math.PI) / 2 * n);
+
+        // Limit tile count
+        const tilesX = Math.max(1, Math.min(tileEast - tileWest + 1, CONFIG.dem.maxTilesX));
+        const tilesY = Math.max(1, Math.min(tileSouth - tileNorth + 1, CONFIG.dem.maxTilesY));
+        const width = tilesX * CONFIG.dem.tileSize;
+        const height = tilesY * CONFIG.dem.tileSize;
+
+        console.log(`DEM fetch: zoom=${zoom}, tiles=${tilesX}x${tilesY}, dimensions=${width}x${height}`);
+
+        if (width * height > CONFIG.dem.maxCells) {
+            throw new Error('Area too large. Please zoom in or reduce the reservoir size.');
+        }
+
+        // Create combined elevation array
+        const elevationData = new Float32Array(width * height);
+
+        // Fetch all tiles
+        const totalTiles = tilesX * tilesY;
+        let loadedTiles = 0;
+
+        for (let ty = tileNorth; ty <= tileNorth + tilesY - 1; ty++) {
+            for (let tx = tileWest; tx <= tileWest + tilesX - 1; tx++) {
+                const url = `${CONFIG.dem.tileServer}/${zoom}/${tx}/${ty}.png`;
+
+                try {
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    const imageData = await this.loadImageData(blob);
+
+                    // Copy to elevation array
+                    const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
+                    const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;
+
+                    for (let y = 0; y < CONFIG.dem.tileSize; y++) {
+                        for (let x = 0; x < CONFIG.dem.tileSize; x++) {
+                            const idx = (y * CONFIG.dem.tileSize + x) * 4;
+                            const r = imageData.data[idx];
+                            const g = imageData.data[idx + 1];
+                            const b = imageData.data[idx + 2];
+
+                            const elevation = (r * 256 + g + b / 256) - 32768;
+
+                            const destIdx = (offsetY + y) * width + (offsetX + x);
+                            elevationData[destIdx] = elevation;
+                        }
+                    }
+
+                } catch (error) {
+                    console.warn(`Failed to load tile ${zoom}/${tx}/${ty}:`, error);
+                    // Fill with no-data value
+                    const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
+                    const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;
+
+                    for (let y = 0; y < CONFIG.dem.tileSize; y++) {
+                        for (let x = 0; x < CONFIG.dem.tileSize; x++) {
+                            const destIdx = (offsetY + y) * width + (offsetX + x);
+                            elevationData[destIdx] = CONFIG.dem.noDataValue;
+                        }
+                    }
+                }
+
+                loadedTiles++;
+                if (progressCallback) {
+                    progressCallback(loadedTiles / totalTiles * 0.5);
+                }
+            }
+        }
+
+        return {
+            data: elevationData,
+            width: width,
+            height: height,
+            tileBounds: [tileWest, tileNorth, tileWest + tilesX - 1, tileNorth + tilesY - 1],
+            zoom: zoom,
+            geoBounds: bounds
+        };
+    }
+
+    /**
+     * Convert lng/lat to tile coordinates
+     */
+    lngLatToTile(lng, lat, zoom) {
+        const n = Math.pow(2, zoom);
+        const tileX = Math.floor((lng + 180) / 360 * n);
+        const tileY = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) +
+            1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+
+        return { tileX, tileY };
+    }
+
+    /**
+     * Convert lng/lat to pixel coordinates within a tile
+     */
+    lngLatToPixel(lng, lat, zoom, tileX, tileY) {
+        const n = Math.pow(2, zoom);
+        const pixelX = ((lng + 180) / 360 * n - tileX) * CONFIG.dem.tileSize;
+        const pixelY = ((1 - Math.log(Math.tan(lat * Math.PI / 180) +
+            1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n - tileY) * CONFIG.dem.tileSize;
+
+        return { pixelX, pixelY };
+    }
+
+    /**
+     * Load image and extract ImageData
+     */
+    async loadImageData(blob) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = CONFIG.dem.tileSize;
+                canvas.height = CONFIG.dem.tileSize;
+                const ctx = canvas.getContext('2d', {
+                    alpha: false,
+                    desynchronized: true
+                });
+                ctx.drawImage(img, 0, 0);
+
+                const imageData = ctx.getImageData(0, 0, CONFIG.dem.tileSize, CONFIG.dem.tileSize);
+                resolve(imageData);
+            };
+            img.onerror = reject;
+            img.src = URL.createObjectURL(blob);
+        });
+    }
+
+    /**
+     * Clear tile cache
+     */
+    clearCache() {
+        this.tileCache.clear();
+    }
+}

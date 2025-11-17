@@ -1,0 +1,505 @@
+/**
+ * Inundator Application
+ * Main controller that coordinates all modules
+ */
+
+import { CONFIG } from './config.js';
+import { ElevationService } from './core/elevation-service.js';
+import { DamGeometry } from './core/dam-geometry.js';
+import { PolygonGenerator } from './core/polygon-generator.js';
+import { Statistics } from './core/statistics.js';
+import { MapManager } from './ui/map-manager.js';
+import { Visualization } from './ui/visualization.js';
+
+export class InundatorApp {
+    constructor() {
+        // Services
+        this.elevationService = new ElevationService();
+        this.mapManager = new MapManager('map');
+        this.visualization = null; // Created after map init
+
+        // State
+        this.isDrawingDam = false;
+        this.damPoints = [];
+        this.damLine = null;
+        this.crestElevation = null;
+        this.floodPolygon = null;
+        this.demData = null;
+        this.currentMousePosition = null;
+
+        // Worker
+        this.floodWorker = null;
+
+        // UI state
+        this.showDepthGradient = CONFIG.visualization.depthGradientEnabled;
+        this.waterLevel = 1.0;
+        this.safetyMargin = CONFIG.dam.defaultSafetyMargin;
+        this.searchTimeout = null;
+
+        this.init();
+    }
+
+    init() {
+        // Initialize map
+        this.mapManager.init();
+        const map = this.mapManager.getMap();
+
+        // Initialize visualization
+        this.visualization = new Visualization(map);
+
+        // Set up map event handlers
+        this.mapManager.onMapClick = (lngLat) => {
+            if (this.isDrawingDam) {
+                this.addDamPoint(lngLat);
+            }
+        };
+
+        this.mapManager.onMapMouseMove = (lngLat) => {
+            if (this.isDrawingDam && this.damPoints.length === 1) {
+                this.currentMousePosition = [lngLat.lng, lngLat.lat];
+                this.updateDrawingPreview();
+            }
+        };
+
+        // Initialize worker
+        this.initWorker();
+
+        // Bind UI events
+        this.bindEvents();
+    }
+
+    initWorker() {
+        if (this.floodWorker) {
+            this.floodWorker.terminate();
+            this.floodWorker = null;
+        }
+
+        this.floodWorker = new Worker('js/workers/flood-worker.js');
+
+        this.floodWorker.addEventListener('message', (e) => {
+            if (e.data.error) {
+                console.error('Worker error:', e.data.error);
+                this.showMessage('Flood computation error: ' + e.data.error, 'error');
+                this.hideStatus();
+            } else if (e.data.debug) {
+                console.log('%c[Worker] ' + e.data.debug, 'color: blue');
+            } else if (e.data.progress !== undefined) {
+                this.updateProgress(e.data.progress);
+            } else if (e.data.flooded) {
+                this.onFloodFillComplete(e.data.flooded);
+            }
+        });
+    }
+
+    bindEvents() {
+        // Location search
+        const locationInput = document.getElementById('location-search');
+        locationInput.addEventListener('input', (e) => {
+            clearTimeout(this.searchTimeout);
+            const query = e.target.value.trim();
+
+            if (query.length < 2) {
+                this.hideLocationDropdown();
+                return;
+            }
+
+            this.searchTimeout = setTimeout(() => {
+                this.searchLocation(query);
+            }, CONFIG.geocoding.searchDebounce);
+        });
+
+        // Dam drawing
+        document.getElementById('draw-dam-btn').addEventListener('click', () => {
+            this.toggleDamDrawing();
+        });
+
+        document.getElementById('clear-dam-btn').addEventListener('click', () => {
+            this.clearDam();
+        });
+
+        // Parameters
+        document.getElementById('safety-margin').addEventListener('input', (e) => {
+            this.safetyMargin = parseFloat(e.target.value);
+            document.getElementById('safety-margin-value').textContent = `${this.safetyMargin} m`;
+            this.updateCrestElevation();
+        });
+
+        document.getElementById('crest-elevation').addEventListener('input', (e) => {
+            const value = e.target.value;
+            if (value) {
+                this.crestElevation = parseFloat(value);
+            }
+        });
+
+        document.getElementById('water-level').addEventListener('input', (e) => {
+            this.waterLevel = parseFloat(e.target.value) / 100;
+            document.getElementById('water-level-value').textContent = `${e.target.value}%`;
+        });
+
+        // Visualization
+        document.getElementById('depth-gradient').addEventListener('change', (e) => {
+            this.showDepthGradient = e.target.checked;
+            this.updateVisualization();
+        });
+
+        // Basemap
+        document.getElementById('basemap-selector').addEventListener('change', (e) => {
+            this.mapManager.switchBasemap(e.target.value);
+        });
+
+        // Actions
+        document.getElementById('compute-btn').addEventListener('click', () => {
+            this.computeInundation();
+        });
+
+        document.getElementById('export-png').addEventListener('click', () => {
+            this.exportPNG();
+        });
+
+        document.getElementById('export-geojson').addEventListener('click', () => {
+            this.exportGeoJSON();
+        });
+
+        // Close dropdowns on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.location-input-container')) {
+                this.hideLocationDropdown();
+            }
+        });
+    }
+
+    // Location search
+    async searchLocation(query) {
+        try {
+            const response = await fetch(
+                `${CONFIG.geocoding.nominatimUrl}?format=jsonv2&q=${encodeURIComponent(query)}&limit=${CONFIG.geocoding.searchLimit}`
+            );
+
+            const results = await response.json();
+            this.showLocationResults(results);
+        } catch (error) {
+            console.error('Location search error:', error);
+        }
+    }
+
+    showLocationResults(results) {
+        const dropdown = document.getElementById('location-results');
+        dropdown.innerHTML = '';
+
+        if (results.length === 0) {
+            dropdown.innerHTML = '<div class="dropdown-item">No results found</div>';
+        } else {
+            results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item';
+                item.textContent = result.display_name;
+                item.addEventListener('click', () => {
+                    this.selectLocation(result);
+                });
+                dropdown.appendChild(item);
+            });
+        }
+
+        dropdown.classList.add('active');
+    }
+
+    hideLocationDropdown() {
+        document.getElementById('location-results').classList.remove('active');
+    }
+
+    selectLocation(location) {
+        document.getElementById('location-search').value = location.display_name.split(',')[0];
+        this.hideLocationDropdown();
+
+        this.mapManager.flyTo(parseFloat(location.lon), parseFloat(location.lat));
+    }
+
+    // Dam drawing
+    toggleDamDrawing() {
+        this.isDrawingDam = !this.isDrawingDam;
+        const btn = document.getElementById('draw-dam-btn');
+        const hint = document.getElementById('drawing-hint');
+
+        if (this.isDrawingDam) {
+            btn.classList.add('active');
+            document.getElementById('draw-dam-text').textContent = 'Cancel drawing';
+            hint.classList.add('active');
+            this.mapManager.setCursor('drawing');
+            this.clearDam();
+        } else {
+            btn.classList.remove('active');
+            document.getElementById('draw-dam-text').textContent = 'Draw dam line';
+            hint.classList.remove('active');
+            this.mapManager.setCursor('');
+            this.visualization.removeDamPreview();
+        }
+    }
+
+    addDamPoint(lngLat) {
+        this.damPoints.push([lngLat.lng, lngLat.lat]);
+
+        if (this.damPoints.length === 1) {
+            this.visualization.updateDamPoints(this.damPoints);
+        } else if (this.damPoints.length === 2) {
+            this.completeDamLine();
+        }
+    }
+
+    updateDrawingPreview() {
+        if (!this.currentMousePosition || this.damPoints.length !== 1) return;
+
+        this.visualization.updateDamPreview(this.damPoints[0], this.currentMousePosition);
+    }
+
+    completeDamLine() {
+        this.isDrawingDam = false;
+        const btn = document.getElementById('draw-dam-btn');
+        btn.classList.remove('active');
+        document.getElementById('draw-dam-text').textContent = 'Draw dam line';
+        document.getElementById('drawing-hint').classList.remove('active');
+        this.mapManager.setCursor('');
+
+        this.visualization.removeDamPreview();
+        this.visualization.removeDamPoints();
+
+        this.damLine = {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: this.damPoints
+            }
+        };
+
+        this.visualization.updateDamLine(this.damLine);
+
+        document.getElementById('clear-dam-btn').disabled = false;
+        document.getElementById('compute-btn').disabled = false;
+
+        this.calculateCrestElevation();
+
+        this.showMessage('Dam line created. Adjust parameters and click "Compute inundation"', 'info');
+    }
+
+    clearDam() {
+        this.damPoints = [];
+        this.damLine = null;
+        this.crestElevation = null;
+
+        this.visualization.clearAll();
+
+        document.getElementById('clear-dam-btn').disabled = true;
+        document.getElementById('compute-btn').disabled = true;
+        document.getElementById('export-png').disabled = true;
+        document.getElementById('export-geojson').disabled = true;
+        document.getElementById('crest-elevation').value = '';
+        document.getElementById('stats').style.display = 'none';
+    }
+
+    async calculateCrestElevation() {
+        if (!this.damLine) return;
+
+        this.showStatus('Calculating crest elevation...');
+
+        try {
+            const samples = DamGeometry.sampleLinePoints(
+                this.damLine.geometry.coordinates,
+                CONFIG.dam.elevationSampleInterval
+            );
+            const elevations = await this.elevationService.fetchElevations(samples);
+
+            const maxElevation = Math.max(...elevations);
+            this.crestElevation = maxElevation - this.safetyMargin;
+
+            document.getElementById('crest-elevation').value = Math.round(this.crestElevation);
+
+            this.hideStatus();
+        } catch (error) {
+            console.error('Error calculating crest elevation:', error);
+            this.showMessage('Failed to calculate crest elevation', 'error');
+            this.hideStatus();
+        }
+    }
+
+    updateCrestElevation() {
+        if (this.damLine && !document.getElementById('crest-elevation').value) {
+            this.calculateCrestElevation();
+        }
+    }
+
+    // Inundation computation
+    async computeInundation() {
+        if (!this.damLine) return;
+
+        const manualElevation = document.getElementById('crest-elevation').value;
+        if (manualElevation) {
+            this.crestElevation = parseFloat(manualElevation);
+        }
+
+        if (!this.crestElevation) {
+            this.showMessage('Please wait for crest elevation calculation or enter manually', 'warning');
+            return;
+        }
+
+        this.showStatus('Fetching elevation data...');
+
+        try {
+            const bounds = DamGeometry.calculateDEMBounds(this.damLine);
+
+            this.showStatus('Loading terrain data...');
+            const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
+                this.updateProgress(progress);
+            });
+            this.demData = demData;
+
+            this.showStatus('Computing flood extent...');
+            await this.runFloodFill(demData);
+
+        } catch (error) {
+            console.error('Inundation computation error:', error);
+            this.showMessage('Failed to compute inundation: ' + error.message, 'error');
+            this.hideStatus();
+        }
+    }
+
+    async runFloodFill(demData) {
+        const damCells = DamGeometry.getDamCells(this.damLine, demData);
+
+        if (damCells.length === 0) {
+            throw new Error('Dam line outside DEM bounds');
+        }
+
+        const effectiveCrest = this.crestElevation * this.waterLevel;
+
+        this.floodWorker.postMessage({
+            demData: demData,
+            damCells: damCells,
+            crestElevation: effectiveCrest,
+            usePhysics: CONFIG.flood.usePhysicsAlgorithm
+        });
+    }
+
+    onFloodFillComplete(floodedCells) {
+        this.showStatus('Creating flood polygon...');
+
+        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
+
+        if (polygon) {
+            this.floodPolygon = polygon;
+            this.visualization.visualizeFlood(polygon, this.showDepthGradient);
+
+            const stats = Statistics.calculate(
+                polygon,
+                floodedCells,
+                this.demData,
+                this.damLine,
+                this.crestElevation
+            );
+
+            this.displayStatistics(stats);
+
+            document.getElementById('export-png').disabled = false;
+            document.getElementById('export-geojson').disabled = false;
+
+            this.showMessage('Inundation computed successfully', 'success');
+        } else {
+            this.showMessage('No flooding detected at current water level', 'warning');
+        }
+
+        this.hideStatus();
+    }
+
+    displayStatistics(stats) {
+        const formatted = Statistics.format(stats);
+
+        document.getElementById('stat-area').textContent = formatted.area;
+        document.getElementById('stat-volume').textContent = formatted.volume;
+        document.getElementById('stat-depth').textContent = formatted.maxDepth;
+        document.getElementById('stat-dam-length').textContent = formatted.damLength;
+        document.getElementById('stat-avg-depth').textContent = formatted.avgDepth;
+
+        document.getElementById('stats').style.display = 'block';
+    }
+
+    updateVisualization() {
+        if (this.floodPolygon) {
+            this.visualization.visualizeFlood(this.floodPolygon, this.showDepthGradient);
+        }
+    }
+
+    // Export
+    exportPNG() {
+        const map = this.mapManager.getMap();
+
+        map.once('idle', () => {
+            const canvas = this.mapManager.getCanvas();
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `inundation-${Date.now()}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        });
+
+        map.triggerRepaint();
+    }
+
+    exportGeoJSON() {
+        if (!this.floodPolygon) return;
+
+        const geoJSON = {
+            type: 'FeatureCollection',
+            features: [this.floodPolygon]
+        };
+
+        geoJSON.features[0].properties = {
+            crestElevation: this.crestElevation,
+            waterLevel: this.waterLevel,
+            area: document.getElementById('stat-area').textContent,
+            volume: document.getElementById('stat-volume').textContent,
+            maxDepth: document.getElementById('stat-depth').textContent,
+            avgDepth: document.getElementById('stat-avg-depth').textContent,
+            exportDate: new Date().toISOString()
+        };
+
+        const blob = new Blob([JSON.stringify(geoJSON, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `inundation-${Date.now()}.geojson`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // UI helpers
+    showStatus(text) {
+        const status = document.getElementById('status');
+        document.getElementById('status-text').textContent = text;
+        status.classList.add('active');
+    }
+
+    hideStatus() {
+        setTimeout(() => {
+            document.getElementById('status').classList.remove('active');
+        }, 500);
+    }
+
+    updateProgress(value) {
+        document.getElementById('progress-fill').style.width = `${value * 100}%`;
+    }
+
+    showMessage(text, type = 'info') {
+        const messages = document.getElementById('messages');
+        messages.innerHTML = `<div class="message ${type}-message">${text}</div>`;
+
+        setTimeout(() => {
+            messages.innerHTML = '';
+        }, 5000);
+    }
+}
+
+// Initialize app when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new InundatorApp();
+});
