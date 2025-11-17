@@ -1,4 +1,4 @@
-name: Deploy Inundator to GitHub Pages
+name: Deploy Geogizmos to GitHub Pages
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'Inundator/**'
+      - 'Isosmfar/**'
       - '.github/workflows/deploy-inundator.yml'
   workflow_dispatch:
 
@@ -36,7 +37,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './Inundator'
+          path: '.'
 
       - name: Deploy to GitHub Pages
         id: deployment
