@@ -18,7 +18,7 @@ export class MapManager {
      */
     init() {
         try {
-            this.map = new maplibregl.Map({
+            this.map = new window.maplibregl.Map({
                 container: this.container,
                 preserveDrawingBuffer: true,
                 failIfMajorPerformanceCaveat: false,
@@ -31,7 +31,7 @@ export class MapManager {
         } catch (error) {
             console.error('Failed to initialize map with default settings, trying fallback:', error);
 
-            this.map = new maplibregl.Map({
+            this.map = new window.maplibregl.Map({
                 container: this.container,
                 preserveDrawingBuffer: false,
                 failIfMajorPerformanceCaveat: false,
@@ -44,7 +44,7 @@ export class MapManager {
             });
         }
 
-        this.map.addControl(new maplibregl.NavigationControl());
+        this.map.addControl(new window.maplibregl.NavigationControl());
 
         // Set up event handlers
         this.map.on('click', (e) => {

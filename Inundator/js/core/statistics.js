@@ -14,11 +14,11 @@ export class Statistics {
         if (!polygon) return null;
 
         // Calculate surface area
-        const areaM2 = turf.area(polygon);
+        const areaM2 = window.turf.area(polygon);
         const areaKm2 = areaM2 / 1000000;
 
         // Calculate dam length
-        const damLength = damLine ? turf.length(damLine, { units: 'meters' }) : 0;
+        const damLength = damLine ? window.turf.length(damLine, { units: 'meters' }) : 0;
 
         // Calculate depths and volume from DEM data
         let minElevation = Infinity;
