@@ -26,7 +26,7 @@ export class PolygonGenerator {
         }
 
         // Use d3-contours marching squares algorithm
-        const contours = d3.contours()
+        const contours = window.d3.contours()
             .size([width, height])
             .thresholds([0.5])(values);
 
@@ -90,7 +90,7 @@ export class PolygonGenerator {
 
         // Validate and simplify
         try {
-            const area = turf.area(polygon);
+            const area = window.turf.area(polygon);
             if (isNaN(area) || area <= 0) {
                 console.error('Invalid polygon area:', area);
                 return null;
@@ -100,7 +100,7 @@ export class PolygonGenerator {
 
             // Simplify if too complex
             if (geoRings[0].length > CONFIG.visualization.maxPolygonPoints) {
-                const simplified = turf.simplify(polygon, {
+                const simplified = window.turf.simplify(polygon, {
                     tolerance: CONFIG.visualization.simplificationTolerance,
                     highQuality: true
                 });
