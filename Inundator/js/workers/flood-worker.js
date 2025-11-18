@@ -5,12 +5,12 @@
 
 // Worker configuration
 const CONFIG = {
-    maxIterations: 1000000,  // Increased to allow large reservoirs to fully flood
-    maxDebugMessages: 200,
-    progressUpdateInterval: 10000,  // Less frequent updates for large floods
+    maxIterations: 2000000,  // Increased for huge valley lakes
+    maxDebugMessages: 100,   // Reduced to minimize overhead
+    progressUpdateInterval: 50000,  // Less frequent updates = faster computation
     noDataValue: -9999,
     minBodySize: 100,
-    maxBodySize: 100000,
+    maxBodySize: 200000,     // Increased for large reservoirs
     elevationWeight: 2.0,
     edgePenalty: 10000,
     distancePenalty: 0.5,
@@ -60,10 +60,8 @@ class MinHeap {
             const parentIndex = Math.floor((index - 1) / 2);
             if (this.heap[index].elevation >= this.heap[parentIndex].elevation) break;
 
-            // Swap
-            const temp = this.heap[index];
-            this.heap[index] = this.heap[parentIndex];
-            this.heap[parentIndex] = temp;
+            // Swap using destructuring (faster)
+            [this.heap[index], this.heap[parentIndex]] = [this.heap[parentIndex], this.heap[index]];
 
             index = parentIndex;
         }
@@ -87,10 +85,8 @@ class MinHeap {
 
             if (smallest === index) break;
 
-            // Swap
-            const temp = this.heap[index];
-            this.heap[index] = this.heap[smallest];
-            this.heap[smallest] = temp;
+            // Swap using destructuring (faster)
+            [this.heap[index], this.heap[smallest]] = [this.heap[smallest], this.heap[index]];
 
             index = smallest;
         }
@@ -217,8 +213,8 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
             const neighborElev = data[neighbor];
 
-            // Skip no-data cells
-            if (neighborElev <= CONFIG.noDataValue) continue;
+            // Skip no-data cells and cells that are too high (optimization)
+            if (neighborElev <= CONFIG.noDataValue || neighborElev >= crestElevation) continue;
 
             // Physics-based check: water can only reach neighbor if path stays below crest
             // Water level = max elevation encountered in path
@@ -513,7 +509,7 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
     let currentX = x1;
     let currentY = y1;
 
-    for (let i = 0; i < 200; i++) {  // Max 200 cells
+    for (let i = 0; i < 1000; i++) {  // Max 1000 cells for large valleys
         currentX -= dirX;
         currentY -= dirY;
 
@@ -544,7 +540,7 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
     currentX = x2;
     currentY = y2;
 
-    for (let i = 0; i < 200; i++) {  // Max 200 cells
+    for (let i = 0; i < 1000; i++) {  // Max 1000 cells for large valleys
         currentX += dirX;
         currentY += dirY;
 

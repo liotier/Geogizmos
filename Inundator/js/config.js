@@ -38,8 +38,8 @@ export const CONFIG = {
 
     // Flood Algorithm Configuration
     flood: {
-        // Maximum iterations for flood-fill
-        maxIterations: 100000,
+        // Maximum iterations for flood-fill (increased for huge valley lakes)
+        maxIterations: 2000000,
 
         // Seed search radius (cells from dam)
         seedSearchRadius: 2,
@@ -49,8 +49,8 @@ export const CONFIG = {
             // Minimum cells for valid water body
             minBodySize: 100,
 
-            // Maximum cells before considering downstream
-            maxBodySize: 100000,
+            // Maximum cells before considering downstream (increased for large reservoirs)
+            maxBodySize: 200000,
 
             // Scoring weights
             elevationWeight: 2.0,
