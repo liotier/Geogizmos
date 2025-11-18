@@ -285,6 +285,7 @@ function createDamBarrier(damCells, width, height) {
 
 /**
  * Extend dam to map edges (legacy algorithm)
+ * FIXED: Extend PERPENDICULAR to dam line, not parallel
  */
 function extendDamToEdges(damCells, visited, width, height) {
     if (damCells.length < 2) return;
@@ -302,40 +303,60 @@ function extendDamToEdges(damCells, visited, width, height) {
 
     if (len === 0) return;
 
-    const dirX = dx / len;
-    const dirY = dy / len;
+    // CRITICAL FIX: Calculate PERPENDICULAR direction
+    // Perpendicular to (dx, dy) is (-dy, dx) or (dy, -dx)
+    const perpX = -dy / len;  // Perpendicular direction
+    const perpY = dx / len;
+
+    debugLog(`Dam direction: (${(dx/len).toFixed(2)}, ${(dy/len).toFixed(2)})`);
+    debugLog(`Perpendicular: (${perpX.toFixed(2)}, ${perpY.toFixed(2)})`);
 
     const maxExtensions = Math.max(width, height) * 2;
 
-    // Extend backwards
-    let extX = x1;
-    let extY = y1;
-    let count = 0;
+    // Extend from each dam cell PERPENDICULAR to the line in BOTH directions
+    // This creates a wall across the valley, not along it
+    for (let damCell of damCells) {
+        const cx = damCell % width;
+        const cy = Math.floor(damCell / width);
 
-    while (extX >= 0 && extX < width && extY >= 0 && extY < height && count < maxExtensions) {
-        const cell = Math.floor(extY) * width + Math.floor(extX);
-        if (cell >= 0 && cell < width * height) {
-            visited[cell] = 2;
+        // Extend in +perpendicular direction
+        let extX = cx;
+        let extY = cy;
+        let count = 0;
+
+        while (count < maxExtensions) {
+            extX += perpX;
+            extY += perpY;
+
+            if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
+
+            const cell = Math.floor(extY) * width + Math.floor(extX);
+            if (cell >= 0 && cell < width * height) {
+                visited[cell] = 2;
+            }
+            count++;
         }
-        extX -= dirX;
-        extY -= dirY;
-        count++;
+
+        // Extend in -perpendicular direction
+        extX = cx;
+        extY = cy;
+        count = 0;
+
+        while (count < maxExtensions) {
+            extX -= perpX;
+            extY -= perpY;
+
+            if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
+
+            const cell = Math.floor(extY) * width + Math.floor(extX);
+            if (cell >= 0 && cell < width * height) {
+                visited[cell] = 2;
+            }
+            count++;
+        }
     }
 
-    // Extend forwards
-    extX = x2;
-    extY = y2;
-    count = 0;
-
-    while (extX >= 0 && extX < width && extY >= 0 && extY < height && count < maxExtensions) {
-        const cell = Math.floor(extY) * width + Math.floor(extX);
-        if (cell >= 0 && cell < width * height) {
-            visited[cell] = 2;
-        }
-        extX += dirX;
-        extY += dirY;
-        count++;
-    }
+    debugLog('Extended barrier wall perpendicular to dam');
 }
 
 /**
