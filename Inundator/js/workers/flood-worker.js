@@ -285,13 +285,13 @@ function filterSeedsByProximity(seedCells, damCells, width, height, data, crestE
     damCenterY /= damCells.length;
 
     // Maximum distance from dam centroid (in cells)
-    // This should be roughly 2-3x the dam length to capture immediate vicinity
+    // Keep it tight - only immediate neighbors of the dam
     const damLength = damCells.length;
-    const maxDistance = Math.max(20, damLength * 3);
+    const maxDistance = Math.max(10, damLength * 1.5);
 
-    // Elevation range: accept seeds within 10% of crest elevation
-    // This captures the immediate valley near the dam
-    const elevRange = crestElevation * 0.1;
+    // Elevation range: accept seeds very close to crest elevation
+    // Only seeds within top 2% of crest elevation (very restrictive)
+    const elevRange = Math.max(10, crestElevation * 0.02);
     const minElev = crestElevation - elevRange;
 
     debugLog(`Proximity filter: maxDist=${maxDistance} cells, elevRange=${minElev.toFixed(1)}-${crestElevation.toFixed(1)}m`);
