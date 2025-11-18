@@ -182,8 +182,9 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         visited[cell] = 2;
     }
 
-    // Extend dam to edges
-    extendDamToEdges(damCells, visited, width, height);
+    // DON'T extend dam to edges - it creates infinite barrier walls
+    // Instead, rely on water body selection to pick upstream vs downstream
+    // extendDamToEdges(damCells, visited, width, height);
 
     // Find seed cells
     const flooded = new Set();
@@ -284,8 +285,9 @@ function createDamBarrier(damCells, width, height) {
 }
 
 /**
- * Extend dam to map edges (legacy algorithm)
- * FIXED: Extend PERPENDICULAR to dam line, not parallel
+ * Extend dam minimally to create separation
+ * Only extends from ENDPOINTS, not every cell
+ * Limited distance, not to edges
  */
 function extendDamToEdges(damCells, visited, width, height) {
     if (damCells.length < 2) return;
@@ -303,60 +305,48 @@ function extendDamToEdges(damCells, visited, width, height) {
 
     if (len === 0) return;
 
-    // CRITICAL FIX: Calculate PERPENDICULAR direction
-    // Perpendicular to (dx, dy) is (-dy, dx) or (dy, -dx)
-    const perpX = -dy / len;  // Perpendicular direction
+    // Calculate perpendicular direction
+    const perpX = -dy / len;
     const perpY = dx / len;
 
-    debugLog(`Dam direction: (${(dx/len).toFixed(2)}, ${(dy/len).toFixed(2)})`);
-    debugLog(`Perpendicular: (${perpX.toFixed(2)}, ${perpY.toFixed(2)})`);
+    // MINIMAL extension - just 50 cells from each endpoint
+    const maxExtension = 50;
 
-    const maxExtensions = Math.max(width, height) * 2;
+    debugLog(`Minimal barrier extension from endpoints (max ${maxExtension} cells each direction)`);
 
-    // Extend from each dam cell PERPENDICULAR to the line in BOTH directions
-    // This creates a wall across the valley, not along it
-    for (let damCell of damCells) {
-        const cx = damCell % width;
-        const cy = Math.floor(damCell / width);
+    // Extend from FIRST endpoint only
+    let extX = x1;
+    let extY = y1;
 
-        // Extend in +perpendicular direction
-        let extX = cx;
-        let extY = cy;
-        let count = 0;
+    // Try +perpendicular
+    for (let i = 0; i < maxExtension; i++) {
+        extX += perpX;
+        extY += perpY;
 
-        while (count < maxExtensions) {
-            extX += perpX;
-            extY += perpY;
+        if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
 
-            if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
-
-            const cell = Math.floor(extY) * width + Math.floor(extX);
-            if (cell >= 0 && cell < width * height) {
-                visited[cell] = 2;
-            }
-            count++;
-        }
-
-        // Extend in -perpendicular direction
-        extX = cx;
-        extY = cy;
-        count = 0;
-
-        while (count < maxExtensions) {
-            extX -= perpX;
-            extY -= perpY;
-
-            if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
-
-            const cell = Math.floor(extY) * width + Math.floor(extX);
-            if (cell >= 0 && cell < width * height) {
-                visited[cell] = 2;
-            }
-            count++;
+        const cell = Math.floor(extY) * width + Math.floor(extX);
+        if (cell >= 0 && cell < width * height) {
+            visited[cell] = 2;
         }
     }
 
-    debugLog('Extended barrier wall perpendicular to dam');
+    // Try -perpendicular from first endpoint
+    extX = x1;
+    extY = y1;
+    for (let i = 0; i < maxExtension; i++) {
+        extX -= perpX;
+        extY -= perpY;
+
+        if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
+
+        const cell = Math.floor(extY) * width + Math.floor(extX);
+        if (cell >= 0 && cell < width * height) {
+            visited[cell] = 2;
+        }
+    }
+
+    debugLog('Minimal barrier created from endpoints');
 }
 
 /**
