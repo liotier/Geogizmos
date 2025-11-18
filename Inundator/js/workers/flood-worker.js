@@ -204,6 +204,26 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 
     debugLog(`Found ${flooded.size} seed cells`);
 
+    // CRITICAL: Partition seed cells to only flood from upstream side
+    // This prevents flooding into downstream valleys
+    const seedPartitions = partitionSeedCells(Array.from(flooded), damCells, width, height, data);
+
+    // Clear and restart with only upstream seeds
+    flooded.clear();
+    queue.length = 0;
+    for (let i = 0; i < width * height; i++) {
+        if (visited[i] === 1) visited[i] = 0; // Clear non-dam visited cells
+    }
+
+    // Initialize with upstream seeds only
+    for (let seed of seedPartitions.upstream) {
+        flooded.add(seed);
+        queue.push(seed);
+        visited[seed] = 1;
+    }
+
+    debugLog(`Starting flood from ${seedPartitions.upstream.size} upstream seeds (discarded ${seedPartitions.downstream.size} downstream seeds)`);
+
     // Simple BFS flood fill
     let iterations = 0;
 
@@ -244,6 +264,67 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
     // Return only the upstream side (the actual reservoir)
     debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
     return partitions.upstream;
+}
+
+/**
+ * Partition seed cells by which side of the dam they're on
+ * Prevents flooding from starting on both sides simultaneously
+ */
+function partitionSeedCells(seedCells, damCells, width, height, data) {
+    if (damCells.length < 2) {
+        debugLog('WARNING: Dam too short to partition seeds, using all seeds');
+        return { upstream: new Set(seedCells), downstream: new Set() };
+    }
+
+    // Calculate dam line vector
+    const firstCell = damCells[0];
+    const lastCell = damCells[damCells.length - 1];
+    const x1 = firstCell % width;
+    const y1 = Math.floor(firstCell / width);
+    const x2 = lastCell % width;
+    const y2 = Math.floor(lastCell / width);
+
+    const damVectorX = x2 - x1;
+    const damVectorY = y2 - y1;
+
+    // Partition seeds by side
+    const leftSeeds = new Set();
+    const rightSeeds = new Set();
+    let leftElevSum = 0;
+    let rightElevSum = 0;
+
+    for (let cell of seedCells) {
+        const x = cell % width;
+        const y = Math.floor(cell / width);
+        const elevation = data[cell];
+
+        if (elevation <= CONFIG.noDataValue) continue;
+
+        // Cross product determines side
+        const toCellX = x - x1;
+        const toCellY = y - y1;
+        const crossProduct = damVectorX * toCellY - damVectorY * toCellX;
+
+        if (crossProduct > 0) {
+            leftSeeds.add(cell);
+            leftElevSum += elevation;
+        } else if (crossProduct < 0) {
+            rightSeeds.add(cell);
+            rightElevSum += elevation;
+        }
+    }
+
+    const leftAvgElev = leftSeeds.size > 0 ? leftElevSum / leftSeeds.size : 0;
+    const rightAvgElev = rightSeeds.size > 0 ? rightElevSum / rightSeeds.size : 0;
+
+    debugLog(`Seed partition: Left=${leftSeeds.size} (${leftAvgElev.toFixed(1)}m), Right=${rightSeeds.size} (${rightAvgElev.toFixed(1)}m)`);
+
+    // Upstream side has higher average elevation
+    if (leftAvgElev > rightAvgElev) {
+        return { upstream: leftSeeds, downstream: rightSeeds };
+    } else {
+        return { upstream: rightSeeds, downstream: leftSeeds };
+    }
 }
 
 /**
