@@ -276,12 +276,41 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 
     debugLog(`Simple flooding complete: ${flooded.size} cells from both valleys`);
 
-    // Post-processing: partition flooded cells and select upstream reservoir
-    const floodPartitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
+    // Identify separate water bodies using connected components
+    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
 
-    debugLog(`Upstream: ${floodPartitions.upstream.size} cells, Downstream: ${floodPartitions.downstream.size} cells`);
+    debugLog(`Found ${bodies.length} water bodies`);
 
-    return floodPartitions.upstream;
+    if (bodies.length === 0) {
+        return new Set();
+    }
+
+    if (bodies.length === 1) {
+        debugLog('Single water body - returning all cells');
+        return bodies[0].cells;
+    }
+
+    // Multiple bodies - select the one closest to dam center
+    const damCenterX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
+    const damCenterY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
+
+    let bestBody = bodies[0];
+    let minDist = Infinity;
+
+    for (let body of bodies) {
+        const distX = body.centerX - damCenterX;
+        const distY = body.centerY - damCenterY;
+        const dist = Math.sqrt(distX * distX + distY * distY);
+
+        if (dist < minDist) {
+            minDist = dist;
+            bestBody = body;
+        }
+    }
+
+    debugLog(`Selected body ${bestBody.id} (${bestBody.size} cells, dist=${minDist.toFixed(1)} from dam)`);
+
+    return bestBody.cells;
 }
 
 /**
