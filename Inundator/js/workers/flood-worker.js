@@ -147,22 +147,18 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
     debugLog(`Physics-based flooding complete: ${flooded.size} cells`);
 
-    // Identify and select best water body
-    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
+    // CRITICAL FIX: Partition flooded cells by which side of dam they're on
+    // This prevents water from flooding both upstream and downstream simultaneously
+    const partitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
 
-    if (bodies.length === 0) {
+    if (partitions.upstream.size === 0 && partitions.downstream.size === 0) {
+        debugLog('ERROR: No valid partitions found');
         return new Set();
-    } else if (bodies.length === 1) {
-        debugLog('Single water body found');
-        return bodies[0].cells;
-    } else {
-        const avgDamX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
-        const avgDamY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
-
-        const selected = selectUpstreamBody(bodies, avgDamX, avgDamY, width, height);
-        debugLog(`Selected body ${selected.id} of ${bodies.length} as upstream reservoir`);
-        return selected.cells;
     }
+
+    // Return only the upstream side (the actual reservoir)
+    debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
+    return partitions.upstream;
 }
 
 /**
@@ -235,20 +231,107 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 
     debugLog(`Simple flooding complete: ${flooded.size} cells`);
 
-    // Identify and select water bodies
-    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
+    // CRITICAL FIX: Partition flooded cells by which side of dam they're on
+    // This prevents water from flooding both upstream and downstream simultaneously
+    const partitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
 
-    if (bodies.length === 0) {
+    if (partitions.upstream.size === 0 && partitions.downstream.size === 0) {
+        debugLog('ERROR: No valid partitions found');
         return new Set();
-    } else if (bodies.length === 1) {
-        return bodies[0].cells;
-    } else {
-        const avgDamX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
-        const avgDamY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
-
-        const selected = selectUpstreamBody(bodies, avgDamX, avgDamY, width, height);
-        return selected.cells;
     }
+
+    // Return only the upstream side (the actual reservoir)
+    debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
+    return partitions.upstream;
+}
+
+/**
+ * Partition flooded cells by which side of the dam they're on
+ * Uses geometric calculation (cross product) to determine left vs right
+ * Returns upstream (higher elevation) side only
+ */
+function partitionByDamSide(flooded, damCells, width, height, data, crestElevation) {
+    if (damCells.length < 2) {
+        debugLog('WARNING: Dam too short to partition, returning all flooded cells as upstream');
+        return { upstream: flooded, downstream: new Set() };
+    }
+
+    // Calculate dam line vector from first to last point
+    const firstCell = damCells[0];
+    const lastCell = damCells[damCells.length - 1];
+    const x1 = firstCell % width;
+    const y1 = Math.floor(firstCell / width);
+    const x2 = lastCell % width;
+    const y2 = Math.floor(lastCell / width);
+
+    // Dam vector
+    const damVectorX = x2 - x1;
+    const damVectorY = y2 - y1;
+
+    debugLog(`Dam line: (${x1},${y1}) to (${x2},${y2}), vector: (${damVectorX},${damVectorY})`);
+
+    // Partition flooded cells by side
+    const leftSide = new Set();
+    const rightSide = new Set();
+    let leftElevSum = 0;
+    let rightElevSum = 0;
+    let leftCount = 0;
+    let rightCount = 0;
+
+    for (let cell of flooded) {
+        const x = cell % width;
+        const y = Math.floor(cell / width);
+        const elevation = data[cell];
+
+        if (elevation <= CONFIG.noDataValue) continue;
+
+        // Vector from dam start to this cell
+        const toCellX = x - x1;
+        const toCellY = y - y1;
+
+        // Cross product determines which side
+        // Positive = left side, Negative = right side
+        const crossProduct = damVectorX * toCellY - damVectorY * toCellX;
+
+        if (crossProduct > 0) {
+            leftSide.add(cell);
+            leftElevSum += elevation;
+            leftCount++;
+        } else if (crossProduct < 0) {
+            rightSide.add(cell);
+            rightElevSum += elevation;
+            rightCount++;
+        }
+        // crossProduct === 0 means exactly on the line (rare, ignore)
+    }
+
+    const leftAvgElev = leftCount > 0 ? leftElevSum / leftCount : 0;
+    const rightAvgElev = rightCount > 0 ? rightElevSum / rightCount : 0;
+
+    debugLog(`Left side: ${leftSide.size} cells, avgElev: ${leftAvgElev.toFixed(1)}m`);
+    debugLog(`Right side: ${rightSide.size} cells, avgElev: ${rightAvgElev.toFixed(1)}m`);
+
+    // Upstream side has HIGHER average elevation (water accumulates behind dam at higher altitude)
+    let upstream, downstream;
+    if (leftAvgElev > rightAvgElev) {
+        debugLog('Left side selected as upstream (higher elevation)');
+        upstream = leftSide;
+        downstream = rightSide;
+    } else {
+        debugLog('Right side selected as upstream (higher elevation)');
+        upstream = rightSide;
+        downstream = leftSide;
+    }
+
+    // Additional validation: check if upstream is too small (might indicate algorithm error)
+    if (upstream.size < CONFIG.minBodySize && downstream.size >= CONFIG.minBodySize) {
+        debugLog(`WARNING: Upstream very small (${upstream.size} cells), might be misidentified. Swapping.`);
+        const temp = upstream;
+        upstream = downstream;
+        downstream = temp;
+    }
+
+    return { upstream, downstream };
 }
 
 /**
