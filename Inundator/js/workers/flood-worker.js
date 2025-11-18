@@ -204,6 +204,26 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 
     debugLog(`Found ${flooded.size} seed cells`);
 
+    // CRITICAL: Partition seed cells to only flood from upstream side
+    // This prevents flooding into downstream valleys
+    const seedPartitions = partitionSeedCells(Array.from(flooded), damCells, width, height, data);
+
+    // Clear and restart with only upstream seeds
+    flooded.clear();
+    queue.length = 0;
+    for (let i = 0; i < width * height; i++) {
+        if (visited[i] === 1) visited[i] = 0; // Clear non-dam visited cells
+    }
+
+    // Initialize with upstream seeds only
+    for (let seed of seedPartitions.upstream) {
+        flooded.add(seed);
+        queue.push(seed);
+        visited[seed] = 1;
+    }
+
+    debugLog(`Starting flood from ${seedPartitions.upstream.size} upstream seeds (discarded ${seedPartitions.downstream.size} downstream seeds)`);
+
     // Simple BFS flood fill
     let iterations = 0;
 
@@ -247,6 +267,74 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 }
 
 /**
+ * Partition seed cells by which side of the dam they're on
+ * Prevents flooding from starting on both sides simultaneously
+ */
+function partitionSeedCells(seedCells, damCells, width, height, data) {
+    if (damCells.length < 2) {
+        debugLog('WARNING: Dam too short to partition seeds, using all seeds');
+        return { upstream: new Set(seedCells), downstream: new Set() };
+    }
+
+    // Calculate dam line vector
+    const firstCell = damCells[0];
+    const lastCell = damCells[damCells.length - 1];
+    const x1 = firstCell % width;
+    const y1 = Math.floor(firstCell / width);
+    const x2 = lastCell % width;
+    const y2 = Math.floor(lastCell / width);
+
+    const damVectorX = x2 - x1;
+    const damVectorY = y2 - y1;
+
+    // Partition seeds by side
+    const leftSeeds = new Set();
+    const rightSeeds = new Set();
+    let leftElevSum = 0;
+    let rightElevSum = 0;
+    let leftMaxElev = -Infinity;
+    let rightMaxElev = -Infinity;
+
+    for (let cell of seedCells) {
+        const x = cell % width;
+        const y = Math.floor(cell / width);
+        const elevation = data[cell];
+
+        if (elevation <= CONFIG.noDataValue) continue;
+
+        // Cross product determines side
+        const toCellX = x - x1;
+        const toCellY = y - y1;
+        const crossProduct = damVectorX * toCellY - damVectorY * toCellX;
+
+        if (crossProduct > 0) {
+            leftSeeds.add(cell);
+            leftElevSum += elevation;
+            if (elevation > leftMaxElev) leftMaxElev = elevation;
+        } else if (crossProduct < 0) {
+            rightSeeds.add(cell);
+            rightElevSum += elevation;
+            if (elevation > rightMaxElev) rightMaxElev = elevation;
+        }
+    }
+
+    const leftAvgElev = leftSeeds.size > 0 ? leftElevSum / leftSeeds.size : 0;
+    const rightAvgElev = rightSeeds.size > 0 ? rightElevSum / rightSeeds.size : 0;
+
+    debugLog(`Seed partition: Left=${leftSeeds.size} (avg=${leftAvgElev.toFixed(1)}m, max=${leftMaxElev.toFixed(1)}m), Right=${rightSeeds.size} (avg=${rightAvgElev.toFixed(1)}m, max=${rightMaxElev.toFixed(1)}m)`);
+
+    // Upstream side has MAXIMUM elevation closest to crest
+    // (narrow valley rises toward dam, downstream drops away)
+    if (leftMaxElev > rightMaxElev) {
+        debugLog('Left side selected as upstream (higher max elevation in seeds)');
+        return { upstream: leftSeeds, downstream: rightSeeds };
+    } else {
+        debugLog('Right side selected as upstream (higher max elevation in seeds)');
+        return { upstream: rightSeeds, downstream: leftSeeds };
+    }
+}
+
+/**
  * Partition flooded cells by which side of the dam they're on
  * Uses geometric calculation (cross product) to determine left vs right
  * Returns upstream (higher elevation) side only
@@ -276,6 +364,8 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
     const rightSide = new Set();
     let leftElevSum = 0;
     let rightElevSum = 0;
+    let leftMaxElev = -Infinity;
+    let rightMaxElev = -Infinity;
     let leftCount = 0;
     let rightCount = 0;
 
@@ -298,10 +388,12 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
             leftSide.add(cell);
             leftElevSum += elevation;
             leftCount++;
+            if (elevation > leftMaxElev) leftMaxElev = elevation;
         } else if (crossProduct < 0) {
             rightSide.add(cell);
             rightElevSum += elevation;
             rightCount++;
+            if (elevation > rightMaxElev) rightMaxElev = elevation;
         }
         // crossProduct === 0 means exactly on the line (rare, ignore)
     }
@@ -309,17 +401,18 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
     const leftAvgElev = leftCount > 0 ? leftElevSum / leftCount : 0;
     const rightAvgElev = rightCount > 0 ? rightElevSum / rightCount : 0;
 
-    debugLog(`Left side: ${leftSide.size} cells, avgElev: ${leftAvgElev.toFixed(1)}m`);
-    debugLog(`Right side: ${rightSide.size} cells, avgElev: ${rightAvgElev.toFixed(1)}m`);
+    debugLog(`Left side: ${leftSide.size} cells, avgElev: ${leftAvgElev.toFixed(1)}m, maxElev: ${leftMaxElev.toFixed(1)}m`);
+    debugLog(`Right side: ${rightSide.size} cells, avgElev: ${rightAvgElev.toFixed(1)}m, maxElev: ${rightMaxElev.toFixed(1)}m`);
 
-    // Upstream side has HIGHER average elevation (water accumulates behind dam at higher altitude)
+    // Upstream side has HIGHER maximum elevation (closer to crest)
+    // This handles cases where downstream area has higher average but lower max
     let upstream, downstream;
-    if (leftAvgElev > rightAvgElev) {
-        debugLog('Left side selected as upstream (higher elevation)');
+    if (leftMaxElev > rightMaxElev) {
+        debugLog('Left side selected as upstream (higher max elevation)');
         upstream = leftSide;
         downstream = rightSide;
     } else {
-        debugLog('Right side selected as upstream (higher elevation)');
+        debugLog('Right side selected as upstream (higher max elevation)');
         upstream = rightSide;
         downstream = leftSide;
     }

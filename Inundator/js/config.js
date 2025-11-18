@@ -73,6 +73,10 @@ export const CONFIG = {
         // Default safety margin (meters below peak)
         defaultSafetyMargin: 5,
 
+        // Water level safety factor (0-1)
+        // 0.95 = 95% fill level (5% freeboard for safety)
+        waterLevelSafetyFactor: 0.95,
+
         // Sample interval along dam line (meters)
         elevationSampleInterval: 10,
 
