@@ -31,7 +31,6 @@ export class InundatorApp {
         this.floodWorker = null;
 
         // UI state
-        this.showDepthGradient = CONFIG.visualization.depthGradientEnabled;
         this.waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
         this.safetyMargin = CONFIG.dam.defaultSafetyMargin;
         this.searchTimeout = null;
@@ -115,20 +114,6 @@ export class InundatorApp {
 
         document.getElementById('clear-dam-btn').addEventListener('click', () => {
             this.clearDam();
-        });
-
-        // Parameters
-        document.getElementById('crest-elevation').addEventListener('input', (e) => {
-            const value = e.target.value;
-            if (value) {
-                this.crestElevation = parseFloat(value);
-            }
-        });
-
-        // Visualization
-        document.getElementById('depth-gradient').addEventListener('change', (e) => {
-            this.showDepthGradient = e.target.checked;
-            this.updateVisualization();
         });
 
         // Basemap
@@ -280,7 +265,6 @@ export class InundatorApp {
         document.getElementById('compute-btn').disabled = true;
         document.getElementById('export-png').disabled = true;
         document.getElementById('export-geojson').disabled = true;
-        document.getElementById('crest-elevation').value = '';
         document.getElementById('stats').style.display = 'none';
     }
 
@@ -299,8 +283,6 @@ export class InundatorApp {
             const maxElevation = Math.max(...elevations);
             this.crestElevation = maxElevation - this.safetyMargin;
 
-            document.getElementById('crest-elevation').value = Math.round(this.crestElevation);
-
             this.hideStatus();
         } catch (error) {
             console.error('Error calculating crest elevation:', error);
@@ -309,19 +291,13 @@ export class InundatorApp {
         }
     }
 
-    updateCrestElevation() {
-        if (this.damLine && !document.getElementById('crest-elevation').value) {
-            this.calculateCrestElevation();
-        }
-    }
-
     // Inundation computation
     async computeInundation() {
         if (!this.damLine) return;
 
-        const manualElevation = document.getElementById('crest-elevation').value;
-        if (manualElevation) {
-            this.crestElevation = parseFloat(manualElevation);
+        // Calculate crest elevation if not already set
+        if (!this.crestElevation) {
+            await this.calculateCrestElevation();
         }
 
         if (!this.crestElevation) {
@@ -373,7 +349,7 @@ export class InundatorApp {
 
         if (polygon) {
             this.floodPolygon = polygon;
-            this.visualization.visualizeFlood(polygon, this.showDepthGradient);
+            this.visualization.visualizeFlood(polygon);
 
             const stats = Statistics.calculate(
                 polygon,
@@ -406,12 +382,6 @@ export class InundatorApp {
         document.getElementById('stat-avg-depth').textContent = formatted.avgDepth;
 
         document.getElementById('stats').style.display = 'block';
-    }
-
-    updateVisualization() {
-        if (this.floodPolygon) {
-            this.visualization.visualizeFlood(this.floodPolygon, this.showDepthGradient);
-        }
     }
 
     // Export

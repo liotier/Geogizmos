@@ -146,7 +146,7 @@ export class Visualization {
     /**
      * Visualize flood polygon
      */
-    visualizeFlood(polygon, showDepthGradient = true) {
+    visualizeFlood(polygon) {
         // Remove existing flood layers
         this.removeFlood();
 
@@ -156,34 +156,16 @@ export class Visualization {
             data: polygon
         });
 
-        // Add fill layer
-        if (showDepthGradient) {
-            this.map.addLayer({
-                id: 'flood-polygon',
-                type: 'fill',
-                source: 'flood-polygon',
-                paint: {
-                    'fill-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        10, CONFIG.visualization.waterColor,
-                        15, CONFIG.visualization.waterColorDeep
-                    ],
-                    'fill-opacity': CONFIG.visualization.waterOpacity
-                }
-            });
-        } else {
-            this.map.addLayer({
-                id: 'flood-polygon',
-                type: 'fill',
-                source: 'flood-polygon',
-                paint: {
-                    'fill-color': CONFIG.visualization.waterColor,
-                    'fill-opacity': CONFIG.visualization.waterOpacity - 0.1
-                }
-            });
-        }
+        // Add fill layer with semi-transparent water color
+        this.map.addLayer({
+            id: 'flood-polygon',
+            type: 'fill',
+            source: 'flood-polygon',
+            paint: {
+                'fill-color': CONFIG.visualization.waterColor,
+                'fill-opacity': CONFIG.visualization.waterOpacity
+            }
+        });
 
         // Add outline
         this.map.addLayer({
