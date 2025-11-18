@@ -27,20 +27,85 @@ function debugLog(msg) {
     }
 }
 
+/**
+ * Min-heap priority queue for efficient flood-fill
+ * Provides O(log n) insertion and extraction instead of O(n log n) sorting
+ */
+class MinHeap {
+    constructor() {
+        this.heap = [];
+    }
+
+    get length() {
+        return this.heap.length;
+    }
+
+    push(item) {
+        this.heap.push(item);
+        this._bubbleUp(this.heap.length - 1);
+    }
+
+    shift() {
+        if (this.heap.length === 0) return undefined;
+        if (this.heap.length === 1) return this.heap.pop();
+
+        const min = this.heap[0];
+        this.heap[0] = this.heap.pop();
+        this._bubbleDown(0);
+        return min;
+    }
+
+    _bubbleUp(index) {
+        while (index > 0) {
+            const parentIndex = Math.floor((index - 1) / 2);
+            if (this.heap[index].elevation >= this.heap[parentIndex].elevation) break;
+
+            // Swap
+            const temp = this.heap[index];
+            this.heap[index] = this.heap[parentIndex];
+            this.heap[parentIndex] = temp;
+
+            index = parentIndex;
+        }
+    }
+
+    _bubbleDown(index) {
+        while (true) {
+            const leftChild = 2 * index + 1;
+            const rightChild = 2 * index + 2;
+            let smallest = index;
+
+            if (leftChild < this.heap.length &&
+                this.heap[leftChild].elevation < this.heap[smallest].elevation) {
+                smallest = leftChild;
+            }
+
+            if (rightChild < this.heap.length &&
+                this.heap[rightChild].elevation < this.heap[smallest].elevation) {
+                smallest = rightChild;
+            }
+
+            if (smallest === index) break;
+
+            // Swap
+            const temp = this.heap[index];
+            this.heap[index] = this.heap[smallest];
+            this.heap[smallest] = temp;
+
+            index = smallest;
+        }
+    }
+}
+
 self.addEventListener('message', function (e) {
     try {
-        const { demData, damCells, crestElevation, usePhysics } = e.data;
+        const { demData, damCells, crestElevation } = e.data;
 
         self.postMessage({ progress: 0.1 });
 
         debugLog(`Worker initialized: ${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m`);
 
-        let flooded;
-        if (usePhysics) {
-            flooded = performPhysicsBasedFlood(demData, damCells, crestElevation);
-        } else {
-            flooded = performSimpleFloodFill(demData, damCells, crestElevation);
-        }
+        const flooded = performPhysicsBasedFlood(demData, damCells, crestElevation);
 
         self.postMessage({ flooded: Array.from(flooded) });
     } catch (error) {
@@ -51,8 +116,9 @@ self.addEventListener('message', function (e) {
 });
 
 /**
- * IMPROVED: Physics-based flood algorithm using priority queue
+ * Physics-based flood algorithm using min-heap priority queue
  * Water flows from high to low elevation, accumulating in depressions
+ * Prevents uphill flooding by tracking maximum elevation in flow path
  */
 function performPhysicsBasedFlood(demData, damCells, crestElevation) {
     const { width, height, data } = demData;
@@ -106,7 +172,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
     // Priority queue-based flooding from both valley bottoms
     const flooded = new Set();
-    const queue = [];
+    const queue = new MinHeap();
 
     // Add starting seeds
     if (leftSeed !== null) {
@@ -138,10 +204,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
             self.postMessage({ progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.4 });
         }
 
-        // Sort queue by elevation (ascending) - water fills lowest areas first
-        queue.sort((a, b) => a.elevation - b.elevation);
-
-        // Process lowest elevation cell
+        // Extract lowest elevation cell from min-heap (O(log n) instead of O(n log n) sort)
         const current = queue.shift();
         const { cell, elevation: currentElev } = current;
 
@@ -188,174 +251,6 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
     }
 
     // Whether single or multiple bodies, always partition to select upstream
-    let selectedCells;
-
-    if (bodies.length === 1) {
-        debugLog('Single connected body - partitioning to select upstream side');
-        const partitions = partitionByDamSide(bodies[0].cells, damCells, width, height, data, crestElevation);
-        selectedCells = partitions.upstream;
-        debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
-    } else {
-        // Multiple bodies - select the one closest to dam center
-        const damCenterX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
-        const damCenterY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
-
-        let bestBody = bodies[0];
-        let minDist = Infinity;
-
-        for (let body of bodies) {
-            const distX = body.centerX - damCenterX;
-            const distY = body.centerY - damCenterY;
-            const dist = Math.sqrt(distX * distX + distY * distY);
-
-            if (dist < minDist) {
-                minDist = dist;
-                bestBody = body;
-            }
-        }
-
-        debugLog(`Selected body ${bestBody.id} (${bestBody.size} cells, dist=${minDist.toFixed(1)} from dam)`);
-        selectedCells = bestBody.cells;
-    }
-
-    return selectedCells;
-}
-
-/**
- * LEGACY: Simple threshold-based flood fill (original algorithm)
- * Kept for comparison/fallback
- */
-function performSimpleFloodFill(demData, damCells, crestElevation) {
-    const { width, height, data } = demData;
-
-    debugLog('Starting simple flood-fill algorithm (legacy)');
-
-    // Create barrier from dam line
-    const visited = new Uint8Array(width * height);
-
-    // Mark dam cells as barriers
-    for (let cell of damCells) {
-        visited[cell] = 2;
-    }
-
-    // DON'T extend dam to edges - it creates infinite barrier walls
-    // Instead, rely on water body selection to pick upstream vs downstream
-    // extendDamToEdges(damCells, visited, width, height);
-
-    // Find seed cells
-    const flooded = new Set();
-    const queue = [];
-
-    for (let damCell of damCells) {
-        const neighbors = getNeighbors(damCell, width, height);
-
-        for (let neighbor of neighbors) {
-            if (visited[neighbor] !== 0) continue;
-
-            const elevation = data[neighbor];
-
-            if (elevation > CONFIG.noDataValue && elevation < crestElevation) {
-                queue.push(neighbor);
-                visited[neighbor] = 1;
-                flooded.add(neighbor);
-            }
-        }
-    }
-
-    debugLog(`Found ${flooded.size} seed cells (all adjacent to dam)`);
-
-    if (flooded.size === 0) {
-        debugLog('ERROR: No seed cells found');
-        return new Set();
-    }
-
-    // Partition seeds geometrically into left/right sides of dam
-    const seedArray = Array.from(flooded);
-    const seedPartitions = partitionSeedCells(seedArray, damCells, width, height, data);
-
-    // Find LOWEST elevation seed on each side (valley bottom)
-    let leftSeed = null;
-    let leftMinElev = Infinity;
-    for (let seed of seedPartitions.left) {
-        const elev = data[seed];
-        if (elev > CONFIG.noDataValue && elev < leftMinElev) {
-            leftMinElev = elev;
-            leftSeed = seed;
-        }
-    }
-
-    let rightSeed = null;
-    let rightMinElev = Infinity;
-    for (let seed of seedPartitions.right) {
-        const elev = data[seed];
-        if (elev > CONFIG.noDataValue && elev < rightMinElev) {
-            rightMinElev = elev;
-            rightSeed = seed;
-        }
-    }
-
-    debugLog(`Left valley bottom: seed at ${leftMinElev.toFixed(1)}m, Right valley bottom: seed at ${rightMinElev.toFixed(1)}m`);
-
-    // Clear and restart with one seed per side
-    flooded.clear();
-    queue.length = 0;
-    for (let i = 0; i < width * height; i++) {
-        if (visited[i] === 1) visited[i] = 0;
-    }
-
-    // Start flooding from both valley bottoms
-    if (leftSeed !== null) {
-        flooded.add(leftSeed);
-        queue.push(leftSeed);
-        visited[leftSeed] = 1;
-    }
-    if (rightSeed !== null) {
-        flooded.add(rightSeed);
-        queue.push(rightSeed);
-        visited[rightSeed] = 1;
-    }
-
-    debugLog(`Starting flood from 2 valley bottom seeds (one per side)`);
-
-    // Simple BFS flood fill
-    let iterations = 0;
-
-    while (queue.length > 0 && iterations < CONFIG.maxIterations) {
-        iterations++;
-
-        if (iterations % CONFIG.progressUpdateInterval === 0) {
-            debugLog(`Iteration ${iterations}, queue: ${queue.length}, flooded: ${flooded.size}`);
-        }
-
-        const cell = queue.shift();
-        const neighbors = getNeighbors(cell, width, height);
-
-        for (let neighbor of neighbors) {
-            if (visited[neighbor] !== 0) continue;
-
-            const neighborElev = data[neighbor];
-
-            if (neighborElev > CONFIG.noDataValue && neighborElev < crestElevation) {
-                visited[neighbor] = 1;
-                flooded.add(neighbor);
-                queue.push(neighbor);
-            }
-        }
-    }
-
-    debugLog(`Simple flooding complete: ${flooded.size} cells from both valleys`);
-
-    // Identify separate water bodies using connected components
-    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
-
-    debugLog(`Found ${bodies.length} water bodies`);
-
-    if (bodies.length === 0) {
-        return new Set();
-    }
-
-    // Whether single or multiple bodies, always partition to select upstream
-    // (Single body means both valleys connected - need to pick upstream side)
     let selectedCells;
 
     if (bodies.length === 1) {
@@ -678,71 +573,6 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
     debugLog(`Dam extended: +${extCount1} cells from start, +${extCount2} cells from end (total ${barriers.size} barrier cells)`);
 
     return barriers;
-}
-
-/**
- * Extend dam minimally to create separation
- * Only extends from ENDPOINTS, not every cell
- * Limited distance, not to edges
- */
-function extendDamToEdges(damCells, visited, width, height) {
-    if (damCells.length < 2) return;
-
-    const firstDam = damCells[0];
-    const lastDam = damCells[damCells.length - 1];
-    const x1 = firstDam % width;
-    const y1 = Math.floor(firstDam / width);
-    const x2 = lastDam % width;
-    const y2 = Math.floor(lastDam / width);
-
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-
-    if (len === 0) return;
-
-    // Calculate perpendicular direction
-    const perpX = -dy / len;
-    const perpY = dx / len;
-
-    // MINIMAL extension - just 50 cells from each endpoint
-    const maxExtension = 50;
-
-    debugLog(`Minimal barrier extension from endpoints (max ${maxExtension} cells each direction)`);
-
-    // Extend from FIRST endpoint only
-    let extX = x1;
-    let extY = y1;
-
-    // Try +perpendicular
-    for (let i = 0; i < maxExtension; i++) {
-        extX += perpX;
-        extY += perpY;
-
-        if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
-
-        const cell = Math.floor(extY) * width + Math.floor(extX);
-        if (cell >= 0 && cell < width * height) {
-            visited[cell] = 2;
-        }
-    }
-
-    // Try -perpendicular from first endpoint
-    extX = x1;
-    extY = y1;
-    for (let i = 0; i < maxExtension; i++) {
-        extX -= perpX;
-        extY -= perpY;
-
-        if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
-
-        const cell = Math.floor(extY) * width + Math.floor(extX);
-        if (cell >= 0 && cell < width * height) {
-            visited[cell] = 2;
-        }
-    }
-
-    debugLog('Minimal barrier created from endpoints');
 }
 
 /**
