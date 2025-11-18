@@ -178,8 +178,7 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         visited[cell] = 2;
     }
 
-    // Extend dam to edges
-    extendDamToEdges(damCells, visited, width, height);
+    // NO dam extension needed - geometric partitioning handles upstream/downstream separation
 
     // Find seed cells
     const flooded = new Set();
@@ -364,61 +363,6 @@ function createDamBarrier(damCells, width, height) {
     }
 
     return barriers;
-}
-
-/**
- * Extend dam to map edges (legacy algorithm)
- */
-function extendDamToEdges(damCells, visited, width, height) {
-    if (damCells.length < 2) return;
-
-    const firstDam = damCells[0];
-    const lastDam = damCells[damCells.length - 1];
-    const x1 = firstDam % width;
-    const y1 = Math.floor(firstDam / width);
-    const x2 = lastDam % width;
-    const y2 = Math.floor(lastDam / width);
-
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-
-    if (len === 0) return;
-
-    const dirX = dx / len;
-    const dirY = dy / len;
-
-    const maxExtensions = Math.max(width, height) * 2;
-
-    // Extend backwards
-    let extX = x1;
-    let extY = y1;
-    let count = 0;
-
-    while (extX >= 0 && extX < width && extY >= 0 && extY < height && count < maxExtensions) {
-        const cell = Math.floor(extY) * width + Math.floor(extX);
-        if (cell >= 0 && cell < width * height) {
-            visited[cell] = 2;
-        }
-        extX -= dirX;
-        extY -= dirY;
-        count++;
-    }
-
-    // Extend forwards
-    extX = x2;
-    extY = y2;
-    count = 0;
-
-    while (extX >= 0 && extX < width && extY >= 0 && extY < height && count < maxExtensions) {
-        const cell = Math.floor(extY) * width + Math.floor(extX);
-        if (cell >= 0 && cell < width * height) {
-            visited[cell] = 2;
-        }
-        extX += dirX;
-        extY += dirY;
-        count++;
-    }
 }
 
 /**
