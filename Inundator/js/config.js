@@ -64,8 +64,8 @@ export const CONFIG = {
         connectivity: 4,
 
         // Use improved physics-based algorithm
-        // TODO: Physics algorithm creates isolated tiny bodies, needs debugging
-        usePhysicsAlgorithm: false
+        // Enabled: prevents water from flowing uphill
+        usePhysicsAlgorithm: true
     },
 
     // Dam Configuration

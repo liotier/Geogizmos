@@ -59,41 +59,74 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
     debugLog('Starting physics-based flood algorithm');
 
-    // Create barrier from dam line
-    const barriers = createDamBarrier(damCells, width, height);
+    // Create barrier from dam line extended to mountainside
+    const barriers = extendDamToMountainside(damCells, data, width, height, crestElevation);
 
-    // Find seed cells (adjacent to dam, below crest)
-    const seeds = findSeedCells(damCells, barriers, data, width, height, crestElevation);
-
-    if (seeds.length === 0) {
-        debugLog('ERROR: No seed cells found');
-        return new Set();
-    }
-
-    debugLog(`Found ${seeds.length} seed cells`);
-
-    // Priority queue-based flooding
-    // Water spreads to lowest available neighbors first
-    const flooded = new Set();
+    // Create visited array and mark barriers
     const visited = new Uint8Array(width * height);
-
-    // Mark barriers as visited
     for (let cell of barriers) {
         visited[cell] = 2; // 2 = barrier
     }
 
-    // Priority queue: [elevation, cell]
-    // Use simple array and sort (good enough for moderate sizes)
-    const queue = seeds.map(cell => ({
-        cell,
-        elevation: data[cell]
-    }));
+    // Find seed cells (adjacent to dam barriers, below crest)
+    const allSeeds = findSeedCells(Array.from(barriers), barriers, data, width, height, crestElevation);
 
-    // Mark seeds as flooded
-    for (let seed of seeds) {
-        flooded.add(seed);
-        visited[seed] = 1;
+    if (allSeeds.length === 0) {
+        debugLog('ERROR: No seed cells found');
+        return new Set();
     }
+
+    debugLog(`Found ${allSeeds.length} seed cells adjacent to extended dam`);
+
+    // Partition seeds geometrically into left/right sides of dam
+    const seedPartitions = partitionSeedCells(allSeeds, damCells, width, height, data);
+
+    // Find LOWEST elevation seed on each side (valley bottom)
+    let leftSeed = null;
+    let leftMinElev = Infinity;
+    for (let seed of seedPartitions.left) {
+        const elev = data[seed];
+        if (elev > CONFIG.noDataValue && elev < leftMinElev) {
+            leftMinElev = elev;
+            leftSeed = seed;
+        }
+    }
+
+    let rightSeed = null;
+    let rightMinElev = Infinity;
+    for (let seed of seedPartitions.right) {
+        const elev = data[seed];
+        if (elev > CONFIG.noDataValue && elev < rightMinElev) {
+            rightMinElev = elev;
+            rightSeed = seed;
+        }
+    }
+
+    debugLog(`Left valley bottom: seed at ${leftMinElev.toFixed(1)}m, Right valley bottom: seed at ${rightMinElev.toFixed(1)}m`);
+
+    // Priority queue-based flooding from both valley bottoms
+    const flooded = new Set();
+    const queue = [];
+
+    // Add starting seeds
+    if (leftSeed !== null) {
+        flooded.add(leftSeed);
+        visited[leftSeed] = 1;
+        queue.push({
+            cell: leftSeed,
+            elevation: data[leftSeed]
+        });
+    }
+    if (rightSeed !== null) {
+        flooded.add(rightSeed);
+        visited[rightSeed] = 1;
+        queue.push({
+            cell: rightSeed,
+            elevation: data[rightSeed]
+        });
+    }
+
+    debugLog(`Starting physics-based flood from 2 valley bottom seeds`);
 
     let iterations = 0;
 
@@ -105,8 +138,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
             self.postMessage({ progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.4 });
         }
 
-        // Sort queue by elevation (ascending)
-        // Water fills lowest areas first
+        // Sort queue by elevation (ascending) - water fills lowest areas first
         queue.sort((a, b) => a.elevation - b.elevation);
 
         // Process lowest elevation cell
@@ -125,9 +157,8 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
             // Skip no-data cells
             if (neighborElev <= CONFIG.noDataValue) continue;
 
-            // Check if water can reach this cell
-            // Water spreads to cells below crest elevation
-            // Key improvement: water level is determined by highest point in path
+            // Physics-based check: water can only reach neighbor if path stays below crest
+            // Water level = max elevation encountered in path
             const waterLevel = Math.max(currentElev, neighborElev);
 
             if (waterLevel < crestElevation) {
@@ -145,11 +176,49 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
         debugLog(`WARNING: Reached iteration limit at ${flooded.size} cells`);
     }
 
-    debugLog(`Physics-based flooding complete: ${flooded.size} cells`);
+    debugLog(`Physics-based flooding complete: ${flooded.size} cells from both valleys`);
 
-    // TODO: Add seed partitioning like in simple algorithm
-    // For now, return all flooded cells
-    return flooded;
+    // Identify separate water bodies using connected components
+    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
+
+    debugLog(`Found ${bodies.length} water bodies`);
+
+    if (bodies.length === 0) {
+        return new Set();
+    }
+
+    // Whether single or multiple bodies, always partition to select upstream
+    let selectedCells;
+
+    if (bodies.length === 1) {
+        debugLog('Single connected body - partitioning to select upstream side');
+        const partitions = partitionByDamSide(bodies[0].cells, damCells, width, height, data, crestElevation);
+        selectedCells = partitions.upstream;
+        debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
+    } else {
+        // Multiple bodies - select the one closest to dam center
+        const damCenterX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
+        const damCenterY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
+
+        let bestBody = bodies[0];
+        let minDist = Infinity;
+
+        for (let body of bodies) {
+            const distX = body.centerX - damCenterX;
+            const distY = body.centerY - damCenterY;
+            const dist = Math.sqrt(distX * distX + distY * distY);
+
+            if (dist < minDist) {
+                minDist = dist;
+                bestBody = body;
+            }
+        }
+
+        debugLog(`Selected body ${bestBody.id} (${bestBody.size} cells, dist=${minDist.toFixed(1)} from dam)`);
+        selectedCells = bestBody.cells;
+    }
+
+    return selectedCells;
 }
 
 /**
@@ -503,6 +572,110 @@ function createDamBarrier(damCells, width, height) {
             }
         }
     }
+
+    return barriers;
+}
+
+/**
+ * Extend dam parallel to itself from both endpoints until hitting mountainside
+ * "Prolong the dam on both sides until each side hits a cell whose altitude
+ * is more than the dam's highest extremity"
+ */
+function extendDamToMountainside(damCells, data, width, height, crestElevation) {
+    if (damCells.length < 2) {
+        debugLog('Dam too short to extend');
+        return createDamBarrier(damCells, width, height);
+    }
+
+    // Start with thickened dam barrier
+    const barriers = createDamBarrier(damCells, width, height);
+
+    // Calculate dam direction vector
+    const firstCell = damCells[0];
+    const lastCell = damCells[damCells.length - 1];
+    const x1 = firstCell % width;
+    const y1 = Math.floor(firstCell / width);
+    const x2 = lastCell % width;
+    const y2 = Math.floor(lastCell / width);
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+
+    if (len === 0) {
+        debugLog('Dam has zero length');
+        return barriers;
+    }
+
+    // Normalized direction vector
+    const dirX = dx / len;
+    const dirY = dy / len;
+
+    debugLog(`Dam direction: (${dirX.toFixed(3)}, ${dirY.toFixed(3)}), extending until hitting mountainside > ${crestElevation.toFixed(1)}m`);
+
+    // Extend from first endpoint BACKWARD (opposite direction)
+    let extCount1 = 0;
+    let currentX = x1;
+    let currentY = y1;
+
+    for (let i = 0; i < 200; i++) {  // Max 200 cells
+        currentX -= dirX;
+        currentY -= dirY;
+
+        const x = Math.round(currentX);
+        const y = Math.round(currentY);
+
+        // Check bounds
+        if (x < 0 || x >= width || y < 0 || y >= height) break;
+
+        const cell = y * width + x;
+        const elevation = data[cell];
+
+        // Stop if we hit mountainside (elevation > crest)
+        if (elevation > crestElevation) {
+            debugLog(`Hit mountainside at endpoint 1 after ${extCount1} cells (elev: ${elevation.toFixed(1)}m)`);
+            break;
+        }
+
+        // Stop if no-data
+        if (elevation <= CONFIG.noDataValue) break;
+
+        barriers.add(cell);
+        extCount1++;
+    }
+
+    // Extend from last endpoint FORWARD
+    let extCount2 = 0;
+    currentX = x2;
+    currentY = y2;
+
+    for (let i = 0; i < 200; i++) {  // Max 200 cells
+        currentX += dirX;
+        currentY += dirY;
+
+        const x = Math.round(currentX);
+        const y = Math.round(currentY);
+
+        // Check bounds
+        if (x < 0 || x >= width || y < 0 || y >= height) break;
+
+        const cell = y * width + x;
+        const elevation = data[cell];
+
+        // Stop if we hit mountainside (elevation > crest)
+        if (elevation > crestElevation) {
+            debugLog(`Hit mountainside at endpoint 2 after ${extCount2} cells (elev: ${elevation.toFixed(1)}m)`);
+            break;
+        }
+
+        // Stop if no-data
+        if (elevation <= CONFIG.noDataValue) break;
+
+        barriers.add(cell);
+        extCount2++;
+    }
+
+    debugLog(`Dam extended: +${extCount1} cells from start, +${extCount2} cells from end (total ${barriers.size} barrier cells)`);
 
     return barriers;
 }
