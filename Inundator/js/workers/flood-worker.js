@@ -193,43 +193,51 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         }
     }
 
-    debugLog(`Found ${flooded.size} seed cells`);
+    debugLog(`Found ${flooded.size} seed cells (all adjacent to dam)`);
 
-    // DIFFERENT APPROACH: Instead of geometric partitioning, filter seeds by:
-    // 1. Distance to dam (must be adjacent or very close)
-    // 2. Elevation (must be close to crest)
-    // This ensures we only flood the valley actually AT the dam
-    const filteredSeeds = filterSeedsByProximity(
-        Array.from(flooded),
-        damCells,
-        width,
-        height,
-        data,
-        crestElevation
-    );
+    // Step 1: Filter by elevation - keep only seeds close to crest elevation
+    // (Seeds are already adjacent to dam by definition from getNeighbors)
+    const elevRange = Math.max(10, crestElevation * 0.02);  // 2% or 10m minimum
+    const minElev = crestElevation - elevRange;
 
-    debugLog(`Filtered to ${filteredSeeds.size} seeds close to dam`);
+    const highElevSeeds = [];
+    for (let seed of flooded) {
+        const elevation = data[seed];
+        if (elevation >= minElev && elevation > CONFIG.noDataValue) {
+            highElevSeeds.push(seed);
+        }
+    }
 
-    if (filteredSeeds.size === 0) {
-        debugLog('ERROR: No valid seeds after proximity filtering');
+    debugLog(`Elevation filter (${minElev.toFixed(1)}-${crestElevation.toFixed(1)}m): kept ${highElevSeeds.length}/${flooded.size} seeds`);
+
+    if (highElevSeeds.length === 0) {
+        debugLog('ERROR: No seeds passed elevation filter');
         return new Set();
     }
 
-    // Clear and restart with filtered seeds only
+    // Step 2: Geometric partitioning to identify upstream vs downstream
+    const seedPartitions = partitionSeedCells(highElevSeeds, damCells, width, height, data);
+
+    // Clear and restart with upstream seeds only
     flooded.clear();
     queue.length = 0;
     for (let i = 0; i < width * height; i++) {
         if (visited[i] === 1) visited[i] = 0; // Clear non-dam visited cells
     }
 
-    // Initialize with filtered seeds
-    for (let seed of filteredSeeds) {
+    // Mark downstream seeds as barriers to prevent leakage
+    for (let seed of seedPartitions.downstream) {
+        visited[seed] = 2;
+    }
+
+    // Initialize with upstream seeds
+    for (let seed of seedPartitions.upstream) {
         flooded.add(seed);
         queue.push(seed);
         visited[seed] = 1;
     }
 
-    debugLog(`Starting flood from ${filteredSeeds.size} proximity-filtered seeds`);
+    debugLog(`Starting flood from ${seedPartitions.upstream.size} upstream seeds (${seedPartitions.downstream.size} downstream blocked)`);
 
     // Simple BFS flood fill
     let iterations = 0;
@@ -265,58 +273,6 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
     // 3. Flooded only from upstream seeds
     // Result is already the correct upstream reservoir
     return flooded;
-}
-
-/**
- * Filter seeds by proximity to dam and elevation
- * Only keeps seeds that are actually adjacent to the dam location
- */
-function filterSeedsByProximity(seedCells, damCells, width, height, data, crestElevation) {
-    const filtered = new Set();
-
-    // Calculate centroid of dam
-    let damCenterX = 0;
-    let damCenterY = 0;
-    for (let damCell of damCells) {
-        damCenterX += damCell % width;
-        damCenterY += Math.floor(damCell / width);
-    }
-    damCenterX /= damCells.length;
-    damCenterY /= damCells.length;
-
-    // Maximum distance from dam centroid (in cells)
-    // Keep it tight - only immediate neighbors of the dam
-    const damLength = damCells.length;
-    const maxDistance = Math.max(10, damLength * 1.5);
-
-    // Elevation range: accept seeds very close to crest elevation
-    // Only seeds within top 2% of crest elevation (very restrictive)
-    const elevRange = Math.max(10, crestElevation * 0.02);
-    const minElev = crestElevation - elevRange;
-
-    debugLog(`Proximity filter: maxDist=${maxDistance} cells, elevRange=${minElev.toFixed(1)}-${crestElevation.toFixed(1)}m`);
-
-    for (let seed of seedCells) {
-        const x = seed % width;
-        const y = Math.floor(seed / width);
-        const elevation = data[seed];
-
-        if (elevation <= CONFIG.noDataValue) continue;
-
-        // Check distance from dam centroid
-        const distX = x - damCenterX;
-        const distY = y - damCenterY;
-        const distance = Math.sqrt(distX * distX + distY * distY);
-
-        // Accept if close enough to dam AND elevation is reasonable
-        if (distance <= maxDistance && elevation >= minElev) {
-            filtered.add(seed);
-        }
-    }
-
-    debugLog(`Proximity filter kept ${filtered.size}/${seedCells.length} seeds`);
-
-    return filtered;
 }
 
 /**
