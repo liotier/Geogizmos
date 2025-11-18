@@ -285,32 +285,39 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         return new Set();
     }
 
+    // Whether single or multiple bodies, always partition to select upstream
+    // (Single body means both valleys connected - need to pick upstream side)
+    let selectedCells;
+
     if (bodies.length === 1) {
-        debugLog('Single water body - returning all cells');
-        return bodies[0].cells;
-    }
+        debugLog('Single connected body - partitioning to select upstream side');
+        const partitions = partitionByDamSide(bodies[0].cells, damCells, width, height, data, crestElevation);
+        selectedCells = partitions.upstream;
+        debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
+    } else {
+        // Multiple bodies - select the one closest to dam center
+        const damCenterX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
+        const damCenterY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
 
-    // Multiple bodies - select the one closest to dam center
-    const damCenterX = damCells.reduce((sum, cell) => sum + (cell % width), 0) / damCells.length;
-    const damCenterY = damCells.reduce((sum, cell) => sum + Math.floor(cell / width), 0) / damCells.length;
+        let bestBody = bodies[0];
+        let minDist = Infinity;
 
-    let bestBody = bodies[0];
-    let minDist = Infinity;
+        for (let body of bodies) {
+            const distX = body.centerX - damCenterX;
+            const distY = body.centerY - damCenterY;
+            const dist = Math.sqrt(distX * distX + distY * distY);
 
-    for (let body of bodies) {
-        const distX = body.centerX - damCenterX;
-        const distY = body.centerY - damCenterY;
-        const dist = Math.sqrt(distX * distX + distY * distY);
-
-        if (dist < minDist) {
-            minDist = dist;
-            bestBody = body;
+            if (dist < minDist) {
+                minDist = dist;
+                bestBody = body;
+            }
         }
+
+        debugLog(`Selected body ${bestBody.id} (${bestBody.size} cells, dist=${minDist.toFixed(1)} from dam)`);
+        selectedCells = bestBody.cells;
     }
 
-    debugLog(`Selected body ${bestBody.id} (${bestBody.size} cells, dist=${minDist.toFixed(1)} from dam)`);
-
-    return bestBody.cells;
+    return selectedCells;
 }
 
 /**
