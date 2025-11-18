@@ -193,43 +193,60 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         }
     }
 
-    debugLog(`Found ${flooded.size} seed cells`);
+    debugLog(`Found ${flooded.size} seed cells (all adjacent to dam)`);
 
-    // DIFFERENT APPROACH: Instead of geometric partitioning, filter seeds by:
-    // 1. Distance to dam (must be adjacent or very close)
-    // 2. Elevation (must be close to crest)
-    // This ensures we only flood the valley actually AT the dam
-    const filteredSeeds = filterSeedsByProximity(
-        Array.from(flooded),
-        damCells,
-        width,
-        height,
-        data,
-        crestElevation
-    );
-
-    debugLog(`Filtered to ${filteredSeeds.size} seeds close to dam`);
-
-    if (filteredSeeds.size === 0) {
-        debugLog('ERROR: No valid seeds after proximity filtering');
+    if (flooded.size === 0) {
+        debugLog('ERROR: No seed cells found');
         return new Set();
     }
 
-    // Clear and restart with filtered seeds only
+    // Partition seeds geometrically into left/right sides of dam
+    const seedArray = Array.from(flooded);
+    const seedPartitions = partitionSeedCells(seedArray, damCells, width, height, data);
+
+    // Find LOWEST elevation seed on each side (valley bottom)
+    let leftSeed = null;
+    let leftMinElev = Infinity;
+    for (let seed of seedPartitions.left) {
+        const elev = data[seed];
+        if (elev > CONFIG.noDataValue && elev < leftMinElev) {
+            leftMinElev = elev;
+            leftSeed = seed;
+        }
+    }
+
+    let rightSeed = null;
+    let rightMinElev = Infinity;
+    for (let seed of seedPartitions.right) {
+        const elev = data[seed];
+        if (elev > CONFIG.noDataValue && elev < rightMinElev) {
+            rightMinElev = elev;
+            rightSeed = seed;
+        }
+    }
+
+    debugLog(`Left valley bottom: seed at ${leftMinElev.toFixed(1)}m, Right valley bottom: seed at ${rightMinElev.toFixed(1)}m`);
+
+    // Clear and restart with one seed per side
     flooded.clear();
     queue.length = 0;
     for (let i = 0; i < width * height; i++) {
-        if (visited[i] === 1) visited[i] = 0; // Clear non-dam visited cells
+        if (visited[i] === 1) visited[i] = 0;
     }
 
-    // Initialize with filtered seeds
-    for (let seed of filteredSeeds) {
-        flooded.add(seed);
-        queue.push(seed);
-        visited[seed] = 1;
+    // Start flooding from both valley bottoms
+    if (leftSeed !== null) {
+        flooded.add(leftSeed);
+        queue.push(leftSeed);
+        visited[leftSeed] = 1;
+    }
+    if (rightSeed !== null) {
+        flooded.add(rightSeed);
+        queue.push(rightSeed);
+        visited[rightSeed] = 1;
     }
 
-    debugLog(`Starting flood from ${filteredSeeds.size} proximity-filtered seeds`);
+    debugLog(`Starting flood from 2 valley bottom seeds (one per side)`);
 
     // Simple BFS flood fill
     let iterations = 0;
@@ -257,76 +274,24 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         }
     }
 
-    debugLog(`Simple flooding complete: ${flooded.size} cells`);
+    debugLog(`Simple flooding complete: ${flooded.size} cells from both valleys`);
 
-    // No post-processing partition needed - we already:
-    // 1. Partitioned seeds to identify upstream side
-    // 2. Blocked downstream seeds as barriers
-    // 3. Flooded only from upstream seeds
-    // Result is already the correct upstream reservoir
-    return flooded;
-}
+    // Post-processing: partition flooded cells and select upstream reservoir
+    const floodPartitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
 
-/**
- * Filter seeds by proximity to dam and elevation
- * Only keeps seeds that are actually adjacent to the dam location
- */
-function filterSeedsByProximity(seedCells, damCells, width, height, data, crestElevation) {
-    const filtered = new Set();
+    debugLog(`Upstream: ${floodPartitions.upstream.size} cells, Downstream: ${floodPartitions.downstream.size} cells`);
 
-    // Calculate centroid of dam
-    let damCenterX = 0;
-    let damCenterY = 0;
-    for (let damCell of damCells) {
-        damCenterX += damCell % width;
-        damCenterY += Math.floor(damCell / width);
-    }
-    damCenterX /= damCells.length;
-    damCenterY /= damCells.length;
-
-    // Maximum distance from dam centroid (in cells)
-    // This should be roughly 2-3x the dam length to capture immediate vicinity
-    const damLength = damCells.length;
-    const maxDistance = Math.max(20, damLength * 3);
-
-    // Elevation range: accept seeds within 10% of crest elevation
-    // This captures the immediate valley near the dam
-    const elevRange = crestElevation * 0.1;
-    const minElev = crestElevation - elevRange;
-
-    debugLog(`Proximity filter: maxDist=${maxDistance} cells, elevRange=${minElev.toFixed(1)}-${crestElevation.toFixed(1)}m`);
-
-    for (let seed of seedCells) {
-        const x = seed % width;
-        const y = Math.floor(seed / width);
-        const elevation = data[seed];
-
-        if (elevation <= CONFIG.noDataValue) continue;
-
-        // Check distance from dam centroid
-        const distX = x - damCenterX;
-        const distY = y - damCenterY;
-        const distance = Math.sqrt(distX * distX + distY * distY);
-
-        // Accept if close enough to dam AND elevation is reasonable
-        if (distance <= maxDistance && elevation >= minElev) {
-            filtered.add(seed);
-        }
-    }
-
-    debugLog(`Proximity filter kept ${filtered.size}/${seedCells.length} seeds`);
-
-    return filtered;
+    return floodPartitions.upstream;
 }
 
 /**
  * Partition seed cells by which side of the dam they're on
- * Prevents flooding from starting on both sides simultaneously
+ * Just geometric partitioning - doesn't try to determine upstream
  */
 function partitionSeedCells(seedCells, damCells, width, height, data) {
     if (damCells.length < 2) {
-        debugLog('WARNING: Dam too short to partition seeds, using all seeds');
-        return { upstream: new Set(seedCells), downstream: new Set() };
+        debugLog('WARNING: Dam too short to partition seeds');
+        return { left: new Set(seedCells), right: new Set() };
     }
 
     // Calculate dam line vector
@@ -340,20 +305,13 @@ function partitionSeedCells(seedCells, damCells, width, height, data) {
     const damVectorX = x2 - x1;
     const damVectorY = y2 - y1;
 
-    // Partition seeds by side
+    // Partition seeds by side using cross product
     const leftSeeds = new Set();
     const rightSeeds = new Set();
-    let leftElevSum = 0;
-    let rightElevSum = 0;
-    let leftMaxElev = -Infinity;
-    let rightMaxElev = -Infinity;
 
     for (let cell of seedCells) {
         const x = cell % width;
         const y = Math.floor(cell / width);
-        const elevation = data[cell];
-
-        if (elevation <= CONFIG.noDataValue) continue;
 
         // Cross product determines side
         const toCellX = x - x1;
@@ -362,41 +320,15 @@ function partitionSeedCells(seedCells, damCells, width, height, data) {
 
         if (crossProduct > 0) {
             leftSeeds.add(cell);
-            leftElevSum += elevation;
-            if (elevation > leftMaxElev) leftMaxElev = elevation;
         } else if (crossProduct < 0) {
             rightSeeds.add(cell);
-            rightElevSum += elevation;
-            if (elevation > rightMaxElev) rightMaxElev = elevation;
         }
+        // crossProduct === 0 means on the line (rare)
     }
 
-    const leftAvgElev = leftSeeds.size > 0 ? leftElevSum / leftSeeds.size : 0;
-    const rightAvgElev = rightSeeds.size > 0 ? rightElevSum / rightSeeds.size : 0;
+    debugLog(`Geometric partition: Left=${leftSeeds.size} seeds, Right=${rightSeeds.size} seeds`);
 
-    debugLog(`Seed partition: Left=${leftSeeds.size} (avg=${leftAvgElev.toFixed(1)}m, max=${leftMaxElev.toFixed(1)}m), Right=${rightSeeds.size} (avg=${rightAvgElev.toFixed(1)}m, max=${rightMaxElev.toFixed(1)}m)`);
-
-    // Upstream side has MAXIMUM elevation closest to crest
-    // (narrow valley rises toward dam, downstream drops away)
-    // Tiebreaker: if max elevations are very close, prefer smaller side (more confined = upstream)
-    const maxElevDiff = Math.abs(leftMaxElev - rightMaxElev);
-
-    if (maxElevDiff < 1.0) {
-        // Max elevations essentially equal - use size as tiebreaker
-        if (leftSeeds.size < rightSeeds.size) {
-            debugLog('Left side selected as upstream (equal max elev, smaller/more confined)');
-            return { upstream: leftSeeds, downstream: rightSeeds };
-        } else {
-            debugLog('Right side selected as upstream (equal max elev, smaller/more confined)');
-            return { upstream: rightSeeds, downstream: leftSeeds };
-        }
-    } else if (leftMaxElev > rightMaxElev) {
-        debugLog('Left side selected as upstream (higher max elevation in seeds)');
-        return { upstream: leftSeeds, downstream: rightSeeds };
-    } else {
-        debugLog('Right side selected as upstream (higher max elevation in seeds)');
-        return { upstream: rightSeeds, downstream: leftSeeds };
-    }
+    return { left: leftSeeds, right: rightSeeds };
 }
 
 /**
