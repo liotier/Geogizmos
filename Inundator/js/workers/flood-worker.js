@@ -525,7 +525,8 @@ function selectUpstreamBody(bodies, damX, damY, width, height) {
         }
 
         // Penalize very large bodies (downstream flooding)
-        if (body.size > CONFIG.maxBodySize) {
+        // BUT: If body doesn't touch edge, it's a confined reservoir (valid even if large)
+        if (body.size > CONFIG.maxBodySize && body.touchesEdge) {
             score -= CONFIG.largeSizePenalty;
         }
 
