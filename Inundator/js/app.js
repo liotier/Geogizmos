@@ -118,12 +118,6 @@ export class InundatorApp {
         });
 
         // Parameters
-        document.getElementById('safety-margin').addEventListener('input', (e) => {
-            this.safetyMargin = parseFloat(e.target.value);
-            document.getElementById('safety-margin-value').textContent = `${this.safetyMargin} m`;
-            this.updateCrestElevation();
-        });
-
         document.getElementById('crest-elevation').addEventListener('input', (e) => {
             const value = e.target.value;
             if (value) {

@@ -215,6 +215,12 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         if (visited[i] === 1) visited[i] = 0; // Clear non-dam visited cells
     }
 
+    // CRITICAL: Mark downstream seeds as barriers to prevent leakage
+    // This stops water from flowing around the dam to the downstream side
+    for (let seed of seedPartitions.downstream) {
+        visited[seed] = 2; // Mark as barrier
+    }
+
     // Initialize with upstream seeds only
     for (let seed of seedPartitions.upstream) {
         flooded.add(seed);
@@ -222,7 +228,7 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         visited[seed] = 1;
     }
 
-    debugLog(`Starting flood from ${seedPartitions.upstream.size} upstream seeds (discarded ${seedPartitions.downstream.size} downstream seeds)`);
+    debugLog(`Starting flood from ${seedPartitions.upstream.size} upstream seeds (${seedPartitions.downstream.size} downstream seeds blocked)`);
 
     // Simple BFS flood fill
     let iterations = 0;
@@ -325,7 +331,19 @@ function partitionSeedCells(seedCells, damCells, width, height, data) {
 
     // Upstream side has MAXIMUM elevation closest to crest
     // (narrow valley rises toward dam, downstream drops away)
-    if (leftMaxElev > rightMaxElev) {
+    // Tiebreaker: if max elevations are very close, prefer smaller side (more confined = upstream)
+    const maxElevDiff = Math.abs(leftMaxElev - rightMaxElev);
+
+    if (maxElevDiff < 1.0) {
+        // Max elevations essentially equal - use size as tiebreaker
+        if (leftSeeds.size < rightSeeds.size) {
+            debugLog('Left side selected as upstream (equal max elev, smaller/more confined)');
+            return { upstream: leftSeeds, downstream: rightSeeds };
+        } else {
+            debugLog('Right side selected as upstream (equal max elev, smaller/more confined)');
+            return { upstream: rightSeeds, downstream: leftSeeds };
+        }
+    } else if (leftMaxElev > rightMaxElev) {
         debugLog('Left side selected as upstream (higher max elevation in seeds)');
         return { upstream: leftSeeds, downstream: rightSeeds };
     } else {
@@ -406,8 +424,22 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
 
     // Upstream side has HIGHER maximum elevation (closer to crest)
     // This handles cases where downstream area has higher average but lower max
+    // Tiebreaker: if max elevations are very close, prefer smaller side (more confined = upstream)
     let upstream, downstream;
-    if (leftMaxElev > rightMaxElev) {
+    const maxElevDiff = Math.abs(leftMaxElev - rightMaxElev);
+
+    if (maxElevDiff < 1.0) {
+        // Max elevations essentially equal - use size as tiebreaker
+        if (leftSide.size < rightSide.size) {
+            debugLog('Left side selected as upstream (equal max elev, smaller/more confined)');
+            upstream = leftSide;
+            downstream = rightSide;
+        } else {
+            debugLog('Right side selected as upstream (equal max elev, smaller/more confined)');
+            upstream = rightSide;
+            downstream = leftSide;
+        }
+    } else if (leftMaxElev > rightMaxElev) {
         debugLog('Left side selected as upstream (higher max elevation)');
         upstream = leftSide;
         downstream = rightSide;
