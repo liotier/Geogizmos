@@ -32,7 +32,7 @@ export class InundatorApp {
 
         // UI state
         this.showDepthGradient = CONFIG.visualization.depthGradientEnabled;
-        this.waterLevel = 1.0;
+        this.waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
         this.safetyMargin = CONFIG.dam.defaultSafetyMargin;
         this.searchTimeout = null;
 
@@ -129,11 +129,6 @@ export class InundatorApp {
             if (value) {
                 this.crestElevation = parseFloat(value);
             }
-        });
-
-        document.getElementById('water-level').addEventListener('input', (e) => {
-            this.waterLevel = parseFloat(e.target.value) / 100;
-            document.getElementById('water-level-value').textContent = `${e.target.value}%`;
         });
 
         // Visualization
@@ -402,7 +397,7 @@ export class InundatorApp {
 
             this.showMessage('Inundation computed successfully', 'success');
         } else {
-            this.showMessage('No flooding detected at current water level', 'warning');
+            this.showMessage('No flooding detected - check crest elevation', 'warning');
         }
 
         this.hideStatus();
