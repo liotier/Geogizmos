@@ -178,7 +178,9 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
         visited[cell] = 2;
     }
 
-    // NO dam extension needed - geometric partitioning handles upstream/downstream separation
+    // DON'T extend dam to edges - it creates infinite barrier walls
+    // Instead, rely on water body selection to pick upstream vs downstream
+    // extendDamToEdges(damCells, visited, width, height);
 
     // Find seed cells
     const flooded = new Set();
@@ -366,6 +368,71 @@ function createDamBarrier(damCells, width, height) {
 }
 
 /**
+ * Extend dam minimally to create separation
+ * Only extends from ENDPOINTS, not every cell
+ * Limited distance, not to edges
+ */
+function extendDamToEdges(damCells, visited, width, height) {
+    if (damCells.length < 2) return;
+
+    const firstDam = damCells[0];
+    const lastDam = damCells[damCells.length - 1];
+    const x1 = firstDam % width;
+    const y1 = Math.floor(firstDam / width);
+    const x2 = lastDam % width;
+    const y2 = Math.floor(lastDam / width);
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+
+    if (len === 0) return;
+
+    // Calculate perpendicular direction
+    const perpX = -dy / len;
+    const perpY = dx / len;
+
+    // MINIMAL extension - just 50 cells from each endpoint
+    const maxExtension = 50;
+
+    debugLog(`Minimal barrier extension from endpoints (max ${maxExtension} cells each direction)`);
+
+    // Extend from FIRST endpoint only
+    let extX = x1;
+    let extY = y1;
+
+    // Try +perpendicular
+    for (let i = 0; i < maxExtension; i++) {
+        extX += perpX;
+        extY += perpY;
+
+        if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
+
+        const cell = Math.floor(extY) * width + Math.floor(extX);
+        if (cell >= 0 && cell < width * height) {
+            visited[cell] = 2;
+        }
+    }
+
+    // Try -perpendicular from first endpoint
+    extX = x1;
+    extY = y1;
+    for (let i = 0; i < maxExtension; i++) {
+        extX -= perpX;
+        extY -= perpY;
+
+        if (extX < 0 || extX >= width || extY < 0 || extY >= height) break;
+
+        const cell = Math.floor(extY) * width + Math.floor(extX);
+        if (cell >= 0 && cell < width * height) {
+            visited[cell] = 2;
+        }
+    }
+
+    debugLog('Minimal barrier created from endpoints');
+}
+
+/**
  * Find seed cells adjacent to dam
  */
 function findSeedCells(damCells, barriers, data, width, height, crestElevation) {
@@ -531,7 +598,8 @@ function selectUpstreamBody(bodies, damX, damY, width, height) {
         }
 
         // Penalize very large bodies (downstream flooding)
-        if (body.size > CONFIG.maxBodySize) {
+        // BUT: If body doesn't touch edge, it's a confined reservoir (valid even if large)
+        if (body.size > CONFIG.maxBodySize && body.touchesEdge) {
             score -= CONFIG.largeSizePenalty;
         }
 
