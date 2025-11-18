@@ -23,11 +23,11 @@ export const CONFIG = {
         },
 
         // Maximum DEM grid size (prevents memory issues)
-        maxCells: 10000000,
+        maxCells: 100000000,
 
         // Maximum tiles to fetch
-        maxTilesX: 20,
-        maxTilesY: 20,
+        maxTilesX: 40,
+        maxTilesY: 40,
 
         // Tile size in pixels
         tileSize: 256,
@@ -38,8 +38,8 @@ export const CONFIG = {
 
     // Flood Algorithm Configuration
     flood: {
-        // Maximum iterations for flood-fill (increased for huge valley lakes)
-        maxIterations: 2000000,
+        // Maximum iterations for flood-fill (increased 10x for massive valley lakes)
+        maxIterations: 20000000,
 
         // Seed search radius (cells from dam)
         seedSearchRadius: 2,
@@ -49,8 +49,8 @@ export const CONFIG = {
             // Minimum cells for valid water body
             minBodySize: 100,
 
-            // Maximum cells before considering downstream (increased for large reservoirs)
-            maxBodySize: 200000,
+            // Maximum cells before considering downstream (increased 10x for massive reservoirs)
+            maxBodySize: 2000000,
 
             // Scoring weights
             elevationWeight: 2.0,
