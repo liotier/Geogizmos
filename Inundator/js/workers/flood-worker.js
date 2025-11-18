@@ -5,12 +5,12 @@
 
 // Worker configuration
 const CONFIG = {
-    maxIterations: 2000000,  // Increased for huge valley lakes
-    maxDebugMessages: 100,   // Reduced to minimize overhead
-    progressUpdateInterval: 50000,  // Less frequent updates = faster computation
+    maxIterations: 20000000,  // Increased 10x for massive valley lakes
+    maxDebugMessages: 100,    // Reduced to minimize overhead
+    progressUpdateInterval: 100000,  // Less frequent updates = faster computation
     noDataValue: -9999,
     minBodySize: 100,
-    maxBodySize: 200000,     // Increased for large reservoirs
+    maxBodySize: 2000000,     // Increased 10x for massive reservoirs
     elevationWeight: 2.0,
     edgePenalty: 10000,
     distancePenalty: 0.5,
