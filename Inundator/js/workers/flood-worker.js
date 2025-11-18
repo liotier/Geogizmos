@@ -292,6 +292,8 @@ function partitionSeedCells(seedCells, damCells, width, height, data) {
     const rightSeeds = new Set();
     let leftElevSum = 0;
     let rightElevSum = 0;
+    let leftMaxElev = -Infinity;
+    let rightMaxElev = -Infinity;
 
     for (let cell of seedCells) {
         const x = cell % width;
@@ -308,21 +310,26 @@ function partitionSeedCells(seedCells, damCells, width, height, data) {
         if (crossProduct > 0) {
             leftSeeds.add(cell);
             leftElevSum += elevation;
+            if (elevation > leftMaxElev) leftMaxElev = elevation;
         } else if (crossProduct < 0) {
             rightSeeds.add(cell);
             rightElevSum += elevation;
+            if (elevation > rightMaxElev) rightMaxElev = elevation;
         }
     }
 
     const leftAvgElev = leftSeeds.size > 0 ? leftElevSum / leftSeeds.size : 0;
     const rightAvgElev = rightSeeds.size > 0 ? rightElevSum / rightSeeds.size : 0;
 
-    debugLog(`Seed partition: Left=${leftSeeds.size} (${leftAvgElev.toFixed(1)}m), Right=${rightSeeds.size} (${rightAvgElev.toFixed(1)}m)`);
+    debugLog(`Seed partition: Left=${leftSeeds.size} (avg=${leftAvgElev.toFixed(1)}m, max=${leftMaxElev.toFixed(1)}m), Right=${rightSeeds.size} (avg=${rightAvgElev.toFixed(1)}m, max=${rightMaxElev.toFixed(1)}m)`);
 
-    // Upstream side has higher average elevation
-    if (leftAvgElev > rightAvgElev) {
+    // Upstream side has MAXIMUM elevation closest to crest
+    // (narrow valley rises toward dam, downstream drops away)
+    if (leftMaxElev > rightMaxElev) {
+        debugLog('Left side selected as upstream (higher max elevation in seeds)');
         return { upstream: leftSeeds, downstream: rightSeeds };
     } else {
+        debugLog('Right side selected as upstream (higher max elevation in seeds)');
         return { upstream: rightSeeds, downstream: leftSeeds };
     }
 }
@@ -357,6 +364,8 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
     const rightSide = new Set();
     let leftElevSum = 0;
     let rightElevSum = 0;
+    let leftMaxElev = -Infinity;
+    let rightMaxElev = -Infinity;
     let leftCount = 0;
     let rightCount = 0;
 
@@ -379,10 +388,12 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
             leftSide.add(cell);
             leftElevSum += elevation;
             leftCount++;
+            if (elevation > leftMaxElev) leftMaxElev = elevation;
         } else if (crossProduct < 0) {
             rightSide.add(cell);
             rightElevSum += elevation;
             rightCount++;
+            if (elevation > rightMaxElev) rightMaxElev = elevation;
         }
         // crossProduct === 0 means exactly on the line (rare, ignore)
     }
@@ -390,17 +401,18 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
     const leftAvgElev = leftCount > 0 ? leftElevSum / leftCount : 0;
     const rightAvgElev = rightCount > 0 ? rightElevSum / rightCount : 0;
 
-    debugLog(`Left side: ${leftSide.size} cells, avgElev: ${leftAvgElev.toFixed(1)}m`);
-    debugLog(`Right side: ${rightSide.size} cells, avgElev: ${rightAvgElev.toFixed(1)}m`);
+    debugLog(`Left side: ${leftSide.size} cells, avgElev: ${leftAvgElev.toFixed(1)}m, maxElev: ${leftMaxElev.toFixed(1)}m`);
+    debugLog(`Right side: ${rightSide.size} cells, avgElev: ${rightAvgElev.toFixed(1)}m, maxElev: ${rightMaxElev.toFixed(1)}m`);
 
-    // Upstream side has HIGHER average elevation (water accumulates behind dam at higher altitude)
+    // Upstream side has HIGHER maximum elevation (closer to crest)
+    // This handles cases where downstream area has higher average but lower max
     let upstream, downstream;
-    if (leftAvgElev > rightAvgElev) {
-        debugLog('Left side selected as upstream (higher elevation)');
+    if (leftMaxElev > rightMaxElev) {
+        debugLog('Left side selected as upstream (higher max elevation)');
         upstream = leftSide;
         downstream = rightSide;
     } else {
-        debugLog('Right side selected as upstream (higher elevation)');
+        debugLog('Right side selected as upstream (higher max elevation)');
         upstream = rightSide;
         downstream = leftSide;
     }
