@@ -5,9 +5,9 @@
 
 // Worker configuration
 const CONFIG = {
-    maxIterations: 100000,
+    maxIterations: 1000000,  // Increased to allow large reservoirs to fully flood
     maxDebugMessages: 200,
-    progressUpdateInterval: 5000,
+    progressUpdateInterval: 10000,  // Less frequent updates for large floods
     noDataValue: -9999,
     minBodySize: 100,
     maxBodySize: 100000,
