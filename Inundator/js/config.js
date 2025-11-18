@@ -61,11 +61,7 @@ export const CONFIG = {
         },
 
         // Connectivity type (4 or 8)
-        connectivity: 4,
-
-        // Use improved physics-based algorithm
-        // Enabled: prevents water from flowing uphill
-        usePhysicsAlgorithm: true
+        connectivity: 4
     },
 
     // Dam Configuration

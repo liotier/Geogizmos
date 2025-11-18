@@ -362,8 +362,7 @@ export class InundatorApp {
         this.floodWorker.postMessage({
             demData: demData,
             damCells: damCells,
-            crestElevation: effectiveCrest,
-            usePhysics: CONFIG.flood.usePhysicsAlgorithm
+            crestElevation: effectiveCrest
         });
     }
 
