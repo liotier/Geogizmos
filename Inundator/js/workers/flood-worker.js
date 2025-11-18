@@ -147,18 +147,9 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
     debugLog(`Physics-based flooding complete: ${flooded.size} cells`);
 
-    // CRITICAL FIX: Partition flooded cells by which side of dam they're on
-    // This prevents water from flooding both upstream and downstream simultaneously
-    const partitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
-
-    if (partitions.upstream.size === 0 && partitions.downstream.size === 0) {
-        debugLog('ERROR: No valid partitions found');
-        return new Set();
-    }
-
-    // Return only the upstream side (the actual reservoir)
-    debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
-    return partitions.upstream;
+    // TODO: Add seed partitioning like in simple algorithm
+    // For now, return all flooded cells
+    return flooded;
 }
 
 /**
@@ -258,18 +249,12 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 
     debugLog(`Simple flooding complete: ${flooded.size} cells`);
 
-    // CRITICAL FIX: Partition flooded cells by which side of dam they're on
-    // This prevents water from flooding both upstream and downstream simultaneously
-    const partitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
-
-    if (partitions.upstream.size === 0 && partitions.downstream.size === 0) {
-        debugLog('ERROR: No valid partitions found');
-        return new Set();
-    }
-
-    // Return only the upstream side (the actual reservoir)
-    debugLog(`Upstream: ${partitions.upstream.size} cells, Downstream: ${partitions.downstream.size} cells`);
-    return partitions.upstream;
+    // No post-processing partition needed - we already:
+    // 1. Partitioned seeds to identify upstream side
+    // 2. Blocked downstream seeds as barriers
+    // 3. Flooded only from upstream seeds
+    // Result is already the correct upstream reservoir
+    return flooded;
 }
 
 /**
