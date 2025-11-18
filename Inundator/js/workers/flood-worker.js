@@ -195,31 +195,41 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
 
     debugLog(`Found ${flooded.size} seed cells`);
 
-    // CRITICAL: Partition seed cells to only flood from upstream side
-    // This prevents flooding into downstream valleys
-    const seedPartitions = partitionSeedCells(Array.from(flooded), damCells, width, height, data);
+    // DIFFERENT APPROACH: Instead of geometric partitioning, filter seeds by:
+    // 1. Distance to dam (must be adjacent or very close)
+    // 2. Elevation (must be close to crest)
+    // This ensures we only flood the valley actually AT the dam
+    const filteredSeeds = filterSeedsByProximity(
+        Array.from(flooded),
+        damCells,
+        width,
+        height,
+        data,
+        crestElevation
+    );
 
-    // Clear and restart with only upstream seeds
+    debugLog(`Filtered to ${filteredSeeds.size} seeds close to dam`);
+
+    if (filteredSeeds.size === 0) {
+        debugLog('ERROR: No valid seeds after proximity filtering');
+        return new Set();
+    }
+
+    // Clear and restart with filtered seeds only
     flooded.clear();
     queue.length = 0;
     for (let i = 0; i < width * height; i++) {
         if (visited[i] === 1) visited[i] = 0; // Clear non-dam visited cells
     }
 
-    // CRITICAL: Mark downstream seeds as barriers to prevent leakage
-    // This stops water from flowing around the dam to the downstream side
-    for (let seed of seedPartitions.downstream) {
-        visited[seed] = 2; // Mark as barrier
-    }
-
-    // Initialize with upstream seeds only
-    for (let seed of seedPartitions.upstream) {
+    // Initialize with filtered seeds
+    for (let seed of filteredSeeds) {
         flooded.add(seed);
         queue.push(seed);
         visited[seed] = 1;
     }
 
-    debugLog(`Starting flood from ${seedPartitions.upstream.size} upstream seeds (${seedPartitions.downstream.size} downstream seeds blocked)`);
+    debugLog(`Starting flood from ${filteredSeeds.size} proximity-filtered seeds`);
 
     // Simple BFS flood fill
     let iterations = 0;
@@ -255,6 +265,58 @@ function performSimpleFloodFill(demData, damCells, crestElevation) {
     // 3. Flooded only from upstream seeds
     // Result is already the correct upstream reservoir
     return flooded;
+}
+
+/**
+ * Filter seeds by proximity to dam and elevation
+ * Only keeps seeds that are actually adjacent to the dam location
+ */
+function filterSeedsByProximity(seedCells, damCells, width, height, data, crestElevation) {
+    const filtered = new Set();
+
+    // Calculate centroid of dam
+    let damCenterX = 0;
+    let damCenterY = 0;
+    for (let damCell of damCells) {
+        damCenterX += damCell % width;
+        damCenterY += Math.floor(damCell / width);
+    }
+    damCenterX /= damCells.length;
+    damCenterY /= damCells.length;
+
+    // Maximum distance from dam centroid (in cells)
+    // This should be roughly 2-3x the dam length to capture immediate vicinity
+    const damLength = damCells.length;
+    const maxDistance = Math.max(20, damLength * 3);
+
+    // Elevation range: accept seeds within 10% of crest elevation
+    // This captures the immediate valley near the dam
+    const elevRange = crestElevation * 0.1;
+    const minElev = crestElevation - elevRange;
+
+    debugLog(`Proximity filter: maxDist=${maxDistance} cells, elevRange=${minElev.toFixed(1)}-${crestElevation.toFixed(1)}m`);
+
+    for (let seed of seedCells) {
+        const x = seed % width;
+        const y = Math.floor(seed / width);
+        const elevation = data[seed];
+
+        if (elevation <= CONFIG.noDataValue) continue;
+
+        // Check distance from dam centroid
+        const distX = x - damCenterX;
+        const distY = y - damCenterY;
+        const distance = Math.sqrt(distX * distX + distY * distY);
+
+        // Accept if close enough to dam AND elevation is reasonable
+        if (distance <= maxDistance && elevation >= minElev) {
+            filtered.add(seed);
+        }
+    }
+
+    debugLog(`Proximity filter kept ${filtered.size}/${seedCells.length} seeds`);
+
+    return filtered;
 }
 
 /**
