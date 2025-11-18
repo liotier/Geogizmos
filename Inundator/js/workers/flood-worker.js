@@ -359,8 +359,12 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
     let rightElevSum = 0;
     let leftMaxElev = -Infinity;
     let rightMaxElev = -Infinity;
+    let leftMinElev = Infinity;
+    let rightMinElev = Infinity;
     let leftCount = 0;
     let rightCount = 0;
+    let leftTouchesEdge = false;
+    let rightTouchesEdge = false;
 
     for (let cell of flooded) {
         const x = cell % width;
@@ -368,6 +372,9 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
         const elevation = data[cell];
 
         if (elevation <= CONFIG.noDataValue) continue;
+
+        // Check if cell touches edge
+        const touchesEdge = (x === 0 || x === width - 1 || y === 0 || y === height - 1);
 
         // Vector from dam start to this cell
         const toCellX = x - x1;
@@ -382,11 +389,15 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
             leftElevSum += elevation;
             leftCount++;
             if (elevation > leftMaxElev) leftMaxElev = elevation;
+            if (elevation < leftMinElev) leftMinElev = elevation;
+            if (touchesEdge) leftTouchesEdge = true;
         } else if (crossProduct < 0) {
             rightSide.add(cell);
             rightElevSum += elevation;
             rightCount++;
             if (elevation > rightMaxElev) rightMaxElev = elevation;
+            if (elevation < rightMinElev) rightMinElev = elevation;
+            if (touchesEdge) rightTouchesEdge = true;
         }
         // crossProduct === 0 means exactly on the line (rare, ignore)
     }
@@ -394,34 +405,85 @@ function partitionByDamSide(flooded, damCells, width, height, data, crestElevati
     const leftAvgElev = leftCount > 0 ? leftElevSum / leftCount : 0;
     const rightAvgElev = rightCount > 0 ? rightElevSum / rightCount : 0;
 
-    debugLog(`Left side: ${leftSide.size} cells, avgElev: ${leftAvgElev.toFixed(1)}m, maxElev: ${leftMaxElev.toFixed(1)}m`);
-    debugLog(`Right side: ${rightSide.size} cells, avgElev: ${rightAvgElev.toFixed(1)}m, maxElev: ${rightMaxElev.toFixed(1)}m`);
+    debugLog(`Left side: ${leftSide.size} cells, min=${leftMinElev.toFixed(1)}m, avg=${leftAvgElev.toFixed(1)}m, max=${leftMaxElev.toFixed(1)}m, edge=${leftTouchesEdge}`);
+    debugLog(`Right side: ${rightSide.size} cells, min=${rightMinElev.toFixed(1)}m, avg=${rightAvgElev.toFixed(1)}m, max=${rightMaxElev.toFixed(1)}m, edge=${rightTouchesEdge}`);
 
-    // Upstream side has HIGHER maximum elevation (closer to crest)
-    // This handles cases where downstream area has higher average but lower max
-    // Tiebreaker: if max elevations are very close, prefer smaller side (more confined = upstream)
-    let upstream, downstream;
-    const maxElevDiff = Math.abs(leftMaxElev - rightMaxElev);
+    // Multi-factor upstream detection
+    // Score each side, higher score = more likely to be upstream
+    let leftScore = 0;
+    let rightScore = 0;
 
-    if (maxElevDiff < 1.0) {
-        // Max elevations essentially equal - use size as tiebreaker
+    // Factor 1: Minimum elevation (valley floor) - upstream floor is higher
+    // This is the most reliable indicator
+    const minElevDiff = leftMinElev - rightMinElev;
+    if (Math.abs(minElevDiff) > 5) {  // Significant difference (>5m)
+        if (minElevDiff > 0) {
+            leftScore += 100;  // Left has higher valley floor
+            debugLog(`Left valley floor ${minElevDiff.toFixed(1)}m higher (+100 points)`);
+        } else {
+            rightScore += 100;  // Right has higher valley floor
+            debugLog(`Right valley floor ${Math.abs(minElevDiff).toFixed(1)}m higher (+100 points)`);
+        }
+    }
+
+    // Factor 2: Average elevation - upstream should be higher
+    const avgElevDiff = leftAvgElev - rightAvgElev;
+    if (Math.abs(avgElevDiff) > 10) {  // Significant difference (>10m)
+        if (avgElevDiff > 0) {
+            leftScore += 50;
+            debugLog(`Left avg elevation ${avgElevDiff.toFixed(1)}m higher (+50 points)`);
+        } else {
+            rightScore += 50;
+            debugLog(`Right avg elevation ${Math.abs(avgElevDiff).toFixed(1)}m higher (+50 points)`);
+        }
+    }
+
+    // Factor 3: Edge touching - downstream more likely to extend to edge
+    if (leftTouchesEdge && !rightTouchesEdge) {
+        rightScore += 75;
+        debugLog('Only left touches edge, right likely upstream (+75 points)');
+    } else if (rightTouchesEdge && !leftTouchesEdge) {
+        leftScore += 75;
+        debugLog('Only right touches edge, left likely upstream (+75 points)');
+    }
+
+    // Factor 4: Size - upstream is typically smaller (more confined)
+    // Only use as weak tiebreaker
+    const sizeDiff = Math.abs(leftSide.size - rightSide.size);
+    const sizeRatio = Math.max(leftSide.size, rightSide.size) / Math.min(leftSide.size, rightSide.size);
+    if (sizeRatio > 2) {  // One side is significantly larger
         if (leftSide.size < rightSide.size) {
-            debugLog('Left side selected as upstream (equal max elev, smaller/more confined)');
+            leftScore += 25;
+            debugLog(`Left is smaller/more confined (+25 points)`);
+        } else {
+            rightScore += 25;
+            debugLog(`Right is smaller/more confined (+25 points)`);
+        }
+    }
+
+    debugLog(`Final scores: Left=${leftScore}, Right=${rightScore}`);
+
+    // Select upstream based on score
+    let upstream, downstream;
+    if (leftScore > rightScore) {
+        debugLog('Left side selected as upstream');
+        upstream = leftSide;
+        downstream = rightSide;
+    } else if (rightScore > leftScore) {
+        debugLog('Right side selected as upstream');
+        upstream = rightSide;
+        downstream = leftSide;
+    } else {
+        // Tie - fall back to size
+        if (leftSide.size < rightSide.size) {
+            debugLog('Tie - left side selected as upstream (smaller)');
             upstream = leftSide;
             downstream = rightSide;
         } else {
-            debugLog('Right side selected as upstream (equal max elev, smaller/more confined)');
+            debugLog('Tie - right side selected as upstream (smaller)');
             upstream = rightSide;
             downstream = leftSide;
         }
-    } else if (leftMaxElev > rightMaxElev) {
-        debugLog('Left side selected as upstream (higher max elevation)');
-        upstream = leftSide;
-        downstream = rightSide;
-    } else {
-        debugLog('Right side selected as upstream (higher max elevation)');
-        upstream = rightSide;
-        downstream = leftSide;
     }
 
     // Additional validation: check if upstream is too small (might indicate algorithm error)
