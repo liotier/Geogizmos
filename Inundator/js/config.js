@@ -92,9 +92,6 @@ export const CONFIG = {
         damWidth: 4,
         damPreviewOpacity: 0.7,
 
-        // Default depth gradient enabled
-        depthGradientEnabled: true,
-
         // Polygon simplification tolerance
         simplificationTolerance: 0.00005,
 
