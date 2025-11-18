@@ -27,6 +27,76 @@ function debugLog(msg) {
     }
 }
 
+/**
+ * Min-heap priority queue for efficient flood-fill
+ * Provides O(log n) insertion and extraction instead of O(n log n) sorting
+ */
+class MinHeap {
+    constructor() {
+        this.heap = [];
+    }
+
+    get length() {
+        return this.heap.length;
+    }
+
+    push(item) {
+        this.heap.push(item);
+        this._bubbleUp(this.heap.length - 1);
+    }
+
+    shift() {
+        if (this.heap.length === 0) return undefined;
+        if (this.heap.length === 1) return this.heap.pop();
+
+        const min = this.heap[0];
+        this.heap[0] = this.heap.pop();
+        this._bubbleDown(0);
+        return min;
+    }
+
+    _bubbleUp(index) {
+        while (index > 0) {
+            const parentIndex = Math.floor((index - 1) / 2);
+            if (this.heap[index].elevation >= this.heap[parentIndex].elevation) break;
+
+            // Swap
+            const temp = this.heap[index];
+            this.heap[index] = this.heap[parentIndex];
+            this.heap[parentIndex] = temp;
+
+            index = parentIndex;
+        }
+    }
+
+    _bubbleDown(index) {
+        while (true) {
+            const leftChild = 2 * index + 1;
+            const rightChild = 2 * index + 2;
+            let smallest = index;
+
+            if (leftChild < this.heap.length &&
+                this.heap[leftChild].elevation < this.heap[smallest].elevation) {
+                smallest = leftChild;
+            }
+
+            if (rightChild < this.heap.length &&
+                this.heap[rightChild].elevation < this.heap[smallest].elevation) {
+                smallest = rightChild;
+            }
+
+            if (smallest === index) break;
+
+            // Swap
+            const temp = this.heap[index];
+            this.heap[index] = this.heap[smallest];
+            this.heap[smallest] = temp;
+
+            index = smallest;
+        }
+    }
+}
+
 self.addEventListener('message', function (e) {
     try {
         const { demData, damCells, crestElevation, usePhysics } = e.data;
@@ -106,7 +176,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
     // Priority queue-based flooding from both valley bottoms
     const flooded = new Set();
-    const queue = [];
+    const queue = new MinHeap();
 
     // Add starting seeds
     if (leftSeed !== null) {
@@ -138,10 +208,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
             self.postMessage({ progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.4 });
         }
 
-        // Sort queue by elevation (ascending) - water fills lowest areas first
-        queue.sort((a, b) => a.elevation - b.elevation);
-
-        // Process lowest elevation cell
+        // Extract lowest elevation cell from min-heap (O(log n) instead of O(n log n) sort)
         const current = queue.shift();
         const { cell, elevation: currentElev } = current;
 
