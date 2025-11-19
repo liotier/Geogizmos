@@ -192,8 +192,15 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Skip no-data cells
             if (neighborElev <= CONFIG.noDataValue) continue;
 
-            // Physics-based flooding: water can only reach neighbor if water level is high enough
-            // Water level rises to neighbor's elevation if neighbor is higher than current water
+            // Physics-based flooding: water can ONLY reach neighbor if current water level
+            // is high enough to overflow into it (currentWaterLevel >= neighborElev)
+            if (currentWaterLevel < neighborElev) {
+                // Water at currentWaterLevel cannot reach a cell at neighborElev
+                // This prevents flooding distant valleys across mountain ridges
+                continue;
+            }
+
+            // Water level at neighbor = max of current water level and neighbor ground elevation
             const neighborWaterLevel = Math.max(currentWaterLevel, neighborElev);
 
             // Water can only flood if it stays below the dam crest
