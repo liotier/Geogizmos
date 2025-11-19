@@ -17,6 +17,17 @@ export class MapManager {
      * Initialize map
      */
     init() {
+        // Suppress WebGL deprecation warnings from MapLibre GL JS texture uploads
+        // These are library-internal warnings about alpha-premult and y-flip parameters
+        const originalWarn = console.warn;
+        console.warn = function(...args) {
+            const message = args[0] || '';
+            if (typeof message === 'string' && message.includes('Alpha-premult and y-flip are deprecated')) {
+                return; // Suppress this specific warning
+            }
+            originalWarn.apply(console, args);
+        };
+
         try {
             this.map = new window.maplibregl.Map({
                 container: this.container,
