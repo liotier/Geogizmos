@@ -1,10 +1,11 @@
 /**
  * Flood Fill Worker
- * Simple fixed-water-level flooding algorithm
- * Water level is constant at dam crest - flood all contiguous cells below that elevation
+ * Fixed water level with real-time upstream/downstream partitioning
+ * Partitions cells by dam side as they flood, detects when upstream stops growing
+ * while downstream runs away, then returns only the confined upstream reservoir
  */
 
-const WORKER_VERSION = "2024.11.19.9";
+const WORKER_VERSION = "2024.11.19.10";
 
 // Worker configuration
 const CONFIG = {
@@ -112,21 +113,46 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     debugLog(`Starting from ${seeds.length} seed cells at valley floor`);
 
-    // Breadth-first flood - grow layer by layer from seeds
-    // Water level is FIXED at dam crest (maxWaterLevel)
-    // We flood all contiguous cells below this fixed water level
-    const flooded = new Set();
+    // Calculate dam vector for partitioning (from first to last dam cell)
+    const firstDamCell = damCells[0];
+    const lastDamCell = damCells[damCells.length - 1];
+    const damX1 = firstDamCell % width;
+    const damY1 = Math.floor(firstDamCell / width);
+    const damX2 = lastDamCell % width;
+    const damY2 = Math.floor(lastDamCell / width);
+    const damVectorX = damX2 - damX1;
+    const damVectorY = damY2 - damY1;
+
+    // Partition flooded cells by dam side as we flood
+    // This allows us to detect when one side stops growing (upstream)
+    // while the other runs away (downstream to ocean)
+    const leftSide = new Set();
+    const rightSide = new Set();
     const queue = new SimpleQueue();
 
+    // Add seeds and partition them
     for (let seed of seeds) {
-        flooded.add(seed);
+        const x = seed % width;
+        const y = Math.floor(seed / width);
+        const toCellX = x - damX1;
+        const toCellY = y - damY1;
+        const crossProduct = damVectorX * toCellY - damVectorY * toCellX;
+
+        if (crossProduct > 0) {
+            leftSide.add(seed);
+        } else if (crossProduct < 0) {
+            rightSide.add(seed);
+        }
+
         visited[seed] = 1;
         queue.push(seed);
     }
 
     let iterations = 0;
-    let lastSize = 0;
-    let stagnantCount = 0;
+    let lastLeftSize = 0;
+    let lastRightSize = 0;
+    let leftStagnant = 0;
+    let rightStagnant = 0;
     let lastVisualizationUpdate = 0;
     const visualizationUpdateInterval = 10000; // Update visualization every 10k cells
 
@@ -134,30 +160,50 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         iterations++;
 
         if (iterations % CONFIG.progressUpdateInterval === 0) {
-            debugLog(`Iteration ${iterations}, queue: ${queue.length}, flooded: ${flooded.size}`);
+            const totalCells = leftSide.size + rightSide.size;
+            debugLog(`Iteration ${iterations}, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
             self.postMessage({ progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8 });
         }
 
-        // Check for stagnation (flooding not growing)
+        // Check each side's growth separately to detect confined upstream vs runaway downstream
         if (iterations % CONFIG.layerCheckInterval === 0) {
-            if (flooded.size === lastSize) {
-                stagnantCount++;
-                if (stagnantCount > 3) {
-                    debugLog(`Flooding stagnant at ${flooded.size} cells - stopping`);
-                    break;
-                }
-            } else {
-                stagnantCount = 0;
-                lastSize = flooded.size;
+            const leftGrowing = leftSide.size > lastLeftSize;
+            const rightGrowing = rightSide.size > lastRightSize;
+
+            if (!leftGrowing) leftStagnant++;
+            else leftStagnant = 0;
+
+            if (!rightGrowing) rightStagnant++;
+            else rightStagnant = 0;
+
+            // If one side is stagnant (confined) and other is still growing (runaway),
+            // select the stagnant side as upstream reservoir and stop
+            if (leftStagnant >= 3 && rightGrowing) {
+                debugLog(`Left side stagnant at ${leftSide.size} cells, right growing to ${rightSide.size} - selecting left as upstream`);
+                return leftSide;
+            }
+            if (rightStagnant >= 3 && leftGrowing) {
+                debugLog(`Right side stagnant at ${rightSide.size} cells, left growing to ${leftSide.size} - selecting right as upstream`);
+                return rightSide;
             }
 
+            // If both sides are stagnant, we're done - return the smaller (upstream) side
+            if (leftStagnant >= 3 && rightStagnant >= 3) {
+                const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
+                debugLog(`Both sides stagnant - selecting smaller side (${upstream.size} cells) as upstream`);
+                return upstream;
+            }
+
+            lastLeftSize = leftSide.size;
+            lastRightSize = rightSide.size;
+
             // Check if approaching edge - request expansion if needed
+            const flooded = new Set([...leftSide, ...rightSide]);
             const edgeInfo = isApproachingEdge(flooded, width, height);
             if (edgeInfo) {
-                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
+                debugLog(`Flooding approaching DEM edge (left: ${leftSide.size}, right: ${rightSide.size}) - requesting expansion`);
 
                 // Always request expansion when approaching edges
-                // Don't try to determine "confined" vs "spreading" - let it expand and find natural boundaries
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
@@ -169,12 +215,17 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         }
 
         // Send incremental visualization updates
-        if (flooded.size - lastVisualizationUpdate >= visualizationUpdateInterval) {
-            lastVisualizationUpdate = flooded.size;
+        // For now, visualize only the smaller (likely upstream) side to reduce clutter
+        const totalCells = leftSide.size + rightSide.size;
+        if (totalCells - lastVisualizationUpdate >= visualizationUpdateInterval) {
+            lastVisualizationUpdate = totalCells;
+            const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
             self.postMessage({
                 incrementalUpdate: true,
-                flooded: Array.from(flooded),
-                cellCount: flooded.size
+                flooded: Array.from(upstream),
+                cellCount: upstream.size,
+                leftSize: leftSide.size,
+                rightSize: rightSide.size
             });
         }
 
@@ -196,28 +247,37 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Water level is constant at maxWaterLevel - we're not simulating gradual filling
             if (neighborElev < maxWaterLevel) {
                 visited[neighbor] = 1;
-                flooded.add(neighbor);
+
+                // Partition this cell by which side of dam it's on
+                const x = neighbor % width;
+                const y = Math.floor(neighbor / width);
+                const toCellX = x - damX1;
+                const toCellY = y - damY1;
+                const crossProduct = damVectorX * toCellY - damVectorY * toCellX;
+
+                if (crossProduct > 0) {
+                    leftSide.add(neighbor);
+                } else if (crossProduct < 0) {
+                    rightSide.add(neighbor);
+                }
+
                 queue.push(neighbor);
             }
         }
     }
 
+    const totalCells = leftSide.size + rightSide.size;
+
     if (iterations >= CONFIG.maxIterations) {
-        debugLog(`WARNING: Reached iteration limit at ${flooded.size} cells`);
+        debugLog(`WARNING: Reached iteration limit - left: ${leftSide.size}, right: ${rightSide.size}`);
     }
 
-    debugLog(`Incremental flooding complete: ${flooded.size} cells`);
+    debugLog(`Incremental flooding complete - left: ${leftSide.size}, right: ${rightSide.size}`);
 
-    // Partition by dam side and select upstream (smaller, confined side)
-    const partitions = partitionByDamSide(flooded, damCells, width, height, data, crestElevation);
-
-    debugLog(`Left side: ${partitions.left.size} cells`);
-    debugLog(`Right side: ${partitions.right.size} cells`);
-
-    // The smaller side is likely upstream (confined valley)
-    // The larger side is likely downstream (spreading out)
-    const upstream = partitions.left.size < partitions.right.size ? partitions.left : partitions.right;
-    const downstream = partitions.left.size < partitions.right.size ? partitions.right : partitions.left;
+    // Select the smaller side as upstream (confined valley)
+    // The larger side is downstream (spreading toward ocean)
+    const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
+    const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
 
     debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
     debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
