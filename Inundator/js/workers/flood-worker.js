@@ -147,52 +147,48 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
     // Partition seeds geometrically into left/right sides of dam
     const seedPartitions = partitionSeedCells(allSeeds, damCells, width, height, data);
 
-    // Find LOWEST elevation seed on each side (valley bottom)
-    let leftSeed = null;
-    let leftMinElev = Infinity;
-    for (let seed of seedPartitions.left) {
-        const elev = data[seed];
-        if (elev > CONFIG.noDataValue && elev < leftMinElev) {
-            leftMinElev = elev;
-            leftSeed = seed;
-        }
-    }
-
-    let rightSeed = null;
-    let rightMinElev = Infinity;
-    for (let seed of seedPartitions.right) {
-        const elev = data[seed];
-        if (elev > CONFIG.noDataValue && elev < rightMinElev) {
-            rightMinElev = elev;
-            rightSeed = seed;
-        }
-    }
-
-    debugLog(`Left valley bottom: seed at ${leftMinElev.toFixed(1)}m, Right valley bottom: seed at ${rightMinElev.toFixed(1)}m`);
-
-    // Priority queue-based flooding from both valley bottoms
+    // Multi-elevation seeding: Use ALL selected seeds from different elevation bands
+    // This helps find upstream valleys that are topographically disconnected
     const flooded = new Set();
     const queue = new MinHeap();
 
-    // Add starting seeds
-    if (leftSeed !== null) {
-        flooded.add(leftSeed);
-        visited[leftSeed] = 1;
-        queue.push({
-            cell: leftSeed,
-            elevation: data[leftSeed]
-        });
-    }
-    if (rightSeed !== null) {
-        flooded.add(rightSeed);
-        visited[rightSeed] = 1;
-        queue.push({
-            cell: rightSeed,
-            elevation: data[rightSeed]
-        });
+    // Track elevations for logging
+    let leftElevations = [];
+    let rightElevations = [];
+
+    // Add ALL seeds from both sides (not just valley bottom)
+    for (let seed of seedPartitions.left) {
+        const elev = data[seed];
+        if (elev > CONFIG.noDataValue) {
+            flooded.add(seed);
+            visited[seed] = 1;
+            queue.push({
+                cell: seed,
+                elevation: elev
+            });
+            leftElevations.push(elev);
+        }
     }
 
-    debugLog(`Starting physics-based flood from 2 valley bottom seeds`);
+    for (let seed of seedPartitions.right) {
+        const elev = data[seed];
+        if (elev > CONFIG.noDataValue) {
+            flooded.add(seed);
+            visited[seed] = 1;
+            queue.push({
+                cell: seed,
+                elevation: elev
+            });
+            rightElevations.push(elev);
+        }
+    }
+
+    leftElevations.sort((a, b) => a - b);
+    rightElevations.sort((a, b) => a - b);
+
+    debugLog(`Left seeds: ${leftElevations.length} from ${leftElevations[0]?.toFixed(1)}m to ${leftElevations[leftElevations.length - 1]?.toFixed(1)}m`);
+    debugLog(`Right seeds: ${rightElevations.length} from ${rightElevations[0]?.toFixed(1)}m to ${rightElevations[rightElevations.length - 1]?.toFixed(1)}m`);
+    debugLog(`Starting physics-based flood from ${flooded.size} multi-elevation seeds`);
 
     let iterations = 0;
     let lastEdgeCheck = 0;
@@ -669,13 +665,15 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
 }
 
 /**
- * Find seed cells adjacent to dam
+ * Find seed cells adjacent to dam at multiple elevations
+ * Multi-elevation seeding helps escape local minima (downstream paths)
+ * and find upstream valleys that may be topographically disconnected
  */
 function findSeedCells(damCells, barriers, data, width, height, crestElevation) {
-    const seeds = [];
+    const allPotentialSeeds = new Map(); // elevation -> [cells]
     const seenSeeds = new Set();
 
-    // Check direct neighbors first
+    // Collect all potential seed cells with their elevations
     for (let damCell of damCells) {
         const neighbors = getNeighbors(damCell, width, height);
 
@@ -685,14 +683,20 @@ function findSeedCells(damCells, barriers, data, width, height, crestElevation) 
             const elevation = data[neighbor];
 
             if (elevation > CONFIG.noDataValue && elevation < crestElevation) {
-                seeds.push(neighbor);
                 seenSeeds.add(neighbor);
+
+                // Round to 10m bands for grouping
+                const elevBand = Math.floor(elevation / 10) * 10;
+                if (!allPotentialSeeds.has(elevBand)) {
+                    allPotentialSeeds.set(elevBand, []);
+                }
+                allPotentialSeeds.get(elevBand).push({ cell: neighbor, elevation });
             }
         }
     }
 
     // If no seeds found, search 2 cells away
-    if (seeds.length === 0) {
+    if (allPotentialSeeds.size === 0) {
         debugLog('No direct seeds found, searching 2 cells away');
 
         for (let damCell of damCells) {
@@ -713,14 +717,48 @@ function findSeedCells(damCells, barriers, data, width, height, crestElevation) 
                             const elevation = data[cell];
 
                             if (elevation > CONFIG.noDataValue && elevation < crestElevation) {
-                                seeds.push(cell);
                                 seenSeeds.add(cell);
+
+                                const elevBand = Math.floor(elevation / 10) * 10;
+                                if (!allPotentialSeeds.has(elevBand)) {
+                                    allPotentialSeeds.set(elevBand, []);
+                                }
+                                allPotentialSeeds.get(elevBand).push({ cell, elevation });
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    // Select seeds from multiple elevation bands
+    const seeds = [];
+    const elevationBands = Array.from(allPotentialSeeds.keys()).sort((a, b) => a - b);
+
+    // If we have many elevation bands, sample them
+    // Take valley bottom, mid-elevations, and near-crest seeds
+    const bandsToUse = [];
+    if (elevationBands.length <= 5) {
+        // Use all bands if we have few
+        bandsToUse.push(...elevationBands);
+    } else {
+        // Sample bands: lowest, several mid-points, highest
+        bandsToUse.push(elevationBands[0]); // Lowest (valley bottom)
+        bandsToUse.push(elevationBands[Math.floor(elevationBands.length * 0.33)]);
+        bandsToUse.push(elevationBands[Math.floor(elevationBands.length * 0.67)]);
+        bandsToUse.push(elevationBands[elevationBands.length - 1]); // Highest
+    }
+
+    debugLog(`Found ${elevationBands.length} elevation bands, using ${bandsToUse.length} for multi-elevation seeding`);
+
+    for (let band of bandsToUse) {
+        const cellsInBand = allPotentialSeeds.get(band);
+        // Add up to 5 seeds from each band
+        for (let i = 0; i < Math.min(5, cellsInBand.length); i++) {
+            seeds.push(cellsInBand[i].cell);
+        }
+        debugLog(`  Band ${band}m: ${cellsInBand.length} cells, using ${Math.min(5, cellsInBand.length)}`);
     }
 
     return seeds;
