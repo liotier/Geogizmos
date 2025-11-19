@@ -3,7 +3,7 @@
  * Improved physics-based flooding algorithm
  */
 
-const WORKER_VERSION = "2024.11.19.3";
+const WORKER_VERSION = "2024.11.19.4";
 
 // Worker configuration
 const CONFIG = {
@@ -149,17 +149,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Check if approaching edge - request expansion if needed
             const edgeInfo = isApproachingEdge(flooded, width, height);
             if (edgeInfo) {
-                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells`);
+                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
 
-                // Check if we have a valid confined body before expanding
-                const hasValidBody = checkForValidReservoir(flooded, visited, width, height, data, crestElevation, damCells);
-
-                if (hasValidBody) {
-                    debugLog(`Found valid confined reservoir - stopping`);
-                    break;
-                }
-
-                // Request expansion
+                // Always request expansion when approaching edges
+                // Don't try to determine "confined" vs "spreading" - let it expand and find natural boundaries
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
@@ -224,9 +217,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 function findValleyFloorSeeds(damCells, barriers, data, width, height, crestElevation) {
     const potentialSeeds = [];
 
-    // Find all cells adjacent to dam
-    for (let damCell of damCells) {
-        const neighbors = getNeighbors(damCell, width, height);
+    // Find all cells adjacent to EXTENDED BARRIER (not just original dam)
+    // This ensures we seed from the full barrier that abuts valley sides
+    for (let barrierCell of barriers) {
+        const neighbors = getNeighbors(barrierCell, width, height);
 
         for (let neighbor of neighbors) {
             if (barriers.has(neighbor)) continue;
@@ -238,7 +232,7 @@ function findValleyFloorSeeds(damCells, barriers, data, width, height, crestElev
         }
     }
 
-    // Remove duplicates and sort by elevation
+    // Remove duplicates
     const uniqueSeeds = new Map();
     for (let seed of potentialSeeds) {
         if (!uniqueSeeds.has(seed.cell)) {
@@ -248,24 +242,6 @@ function findValleyFloorSeeds(damCells, barriers, data, width, height, crestElev
 
     // Return all seeds (breadth-first will handle layer-by-layer growth)
     return Array.from(uniqueSeeds.keys());
-}
-
-/**
- * Check if we have a valid confined reservoir
- */
-function checkForValidReservoir(flooded, visited, width, height, data, crestElevation, damCells) {
-    // Identify water bodies
-    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
-
-    // Check if any body is fully confined (not touching edges)
-    for (let body of bodies) {
-        if (!body.touchesEdge && body.size >= CONFIG.minReservoirSize) {
-            debugLog(`Found confined reservoir: ${body.size} cells, not touching edges`);
-            return true;
-        }
-    }
-
-    return false;
 }
 
 /**
