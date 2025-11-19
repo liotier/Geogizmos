@@ -87,6 +87,8 @@ export class InundatorApp {
                 console.log('%c[Worker] ' + e.data.debug, 'color: blue');
             } else if (e.data.progress !== undefined) {
                 this.updateProgress(e.data.progress);
+            } else if (e.data.incrementalUpdate) {
+                this.updateIncrementalVisualization(e.data.flooded, e.data.cellCount);
             } else if (e.data.needMoreDEM) {
                 this.handleDEMExpansionRequest(e.data);
             } else if (e.data.flooded) {
@@ -421,6 +423,18 @@ export class InundatorApp {
             console.error('DEM expansion error:', error);
             this.showMessage('Failed to expand terrain data: ' + error.message, 'error');
             this.hideStatus();
+        }
+    }
+
+    updateIncrementalVisualization(floodedCells, cellCount) {
+        // Update status to show progress
+        this.showStatus(`Flooding: ${cellCount.toLocaleString()} cells...`);
+
+        // Create and display polygon
+        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
+
+        if (polygon) {
+            this.visualization.visualizeFlood(polygon);
         }
     }
 

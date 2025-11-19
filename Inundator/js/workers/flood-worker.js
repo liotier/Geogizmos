@@ -3,7 +3,7 @@
  * Improved physics-based flooding algorithm
  */
 
-const WORKER_VERSION = "2024.11.19.7";
+const WORKER_VERSION = "2024.11.19.8";
 
 // Worker configuration
 const CONFIG = {
@@ -114,16 +114,20 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     // Breadth-first flood - grow layer by layer
     const flooded = new Set();
     const queue = new SimpleQueue();
+    const waterLevel = new Float32Array(width * height); // Track water level at each cell
 
     for (let seed of seeds) {
         flooded.add(seed);
         visited[seed] = 1;
+        waterLevel[seed] = data[seed]; // Water level starts at ground elevation
         queue.push(seed);
     }
 
     let iterations = 0;
     let lastSize = 0;
     let stagnantCount = 0;
+    let lastVisualizationUpdate = 0;
+    const visualizationUpdateInterval = 10000; // Update visualization every 10k cells
 
     while (queue.length > 0 && iterations < CONFIG.maxIterations) {
         iterations++;
@@ -163,8 +167,18 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             }
         }
 
+        // Send incremental visualization updates
+        if (flooded.size - lastVisualizationUpdate >= visualizationUpdateInterval) {
+            lastVisualizationUpdate = flooded.size;
+            self.postMessage({
+                incrementalUpdate: true,
+                flooded: Array.from(flooded),
+                cellCount: flooded.size
+            });
+        }
+
         const cell = queue.shift();
-        const cellElev = data[cell];
+        const currentWaterLevel = waterLevel[cell];
 
         // Get neighbors
         const neighbors = getNeighbors(cell, width, height);
@@ -178,11 +192,15 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Skip no-data cells
             if (neighborElev <= CONFIG.noDataValue) continue;
 
-            // Simple rule: flood if neighbor elevation is below max water level
-            // This creates a "fill to crest" behavior
-            if (neighborElev < maxWaterLevel) {
+            // Physics-based flooding: water can only reach neighbor if water level is high enough
+            // Water level rises to neighbor's elevation if neighbor is higher than current water
+            const neighborWaterLevel = Math.max(currentWaterLevel, neighborElev);
+
+            // Water can only flood if it stays below the dam crest
+            if (neighborWaterLevel < maxWaterLevel) {
                 visited[neighbor] = 1;
                 flooded.add(neighbor);
+                waterLevel[neighbor] = neighborWaterLevel;
                 queue.push(neighbor);
             }
         }
