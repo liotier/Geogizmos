@@ -212,7 +212,19 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
             lastEdgeCheck = iterations;
             const edgeInfo = isApproachingEdge(flooded, width, height);
             if (edgeInfo) {
-                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
+                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - checking for confined bodies`);
+
+                // Try to identify a confined upstream body before requesting expansion
+                const confinedBody = checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells);
+
+                if (confinedBody) {
+                    // Found a confined body - select it as upstream and finish
+                    debugLog(`Confined body identified - stopping expansion and selecting upstream`);
+                    return confinedBody;
+                }
+
+                // Couldn't identify confined body - request expansion
+                debugLog(`No confined body found - requesting expansion`);
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
@@ -735,6 +747,7 @@ function identifyWaterBodies(flooded, visited, width, height, data, crestElevati
         let minElevation = Infinity;
         let maxElevation = -Infinity;
         let touchesEdge = false;
+        const edgesTouched = { north: false, south: false, east: false, west: false };
         let minX = width, maxX = 0, minY = height, maxY = 0;
 
         while (queue.length > 0) {
@@ -747,9 +760,11 @@ function identifyWaterBodies(flooded, visited, width, height, data, crestElevati
             if (y < minY) minY = y;
             if (y > maxY) maxY = y;
 
-            if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
-                touchesEdge = true;
-            }
+            // Track which edges this body touches
+            if (x === 0) { touchesEdge = true; edgesTouched.west = true; }
+            if (x === width - 1) { touchesEdge = true; edgesTouched.east = true; }
+            if (y === 0) { touchesEdge = true; edgesTouched.north = true; }
+            if (y === height - 1) { touchesEdge = true; edgesTouched.south = true; }
 
             const elevation = data[cell];
             if (elevation > CONFIG.noDataValue) {
@@ -780,6 +795,7 @@ function identifyWaterBodies(flooded, visited, width, height, data, crestElevati
             minElevation,
             maxElevation,
             touchesEdge,
+            edgesTouched,
             centerX,
             centerY,
             bounds: [minX, minY, maxX, maxY]
@@ -884,4 +900,71 @@ function isApproachingEdge(flooded, width, height) {
     }
 
     return approaching ? edges : null;
+}
+
+/**
+ * Check if we can identify a confined (upstream) water body without expansion
+ * Returns the upstream body if found, null if expansion is needed
+ */
+function checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells) {
+    // Run connected component analysis
+    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
+
+    if (bodies.length < 2) {
+        // Only one body, can't determine yet - need expansion
+        return null;
+    }
+
+    debugLog(`Checking ${bodies.length} water bodies for confinement`);
+
+    // Check if any body is NOT touching edges (fully confined)
+    const confinedBodies = bodies.filter(body => !body.touchesEdge);
+
+    if (confinedBodies.length === 1) {
+        debugLog(`Found confined body ${confinedBodies[0].id} (${confinedBodies[0].size} cells) - this is upstream`);
+        return confinedBodies[0].cells;
+    }
+
+    // If all bodies touch edges, analyze which is likely upstream
+    // Upstream characteristics:
+    // - Smaller size (confined valley vs downstream spread)
+    // - Higher minimum elevation (valley floor)
+    // - NOT touching south/west edges (downstream direction for most Alps locations)
+
+    let upstreamCandidate = null;
+    let bestScore = -Infinity;
+
+    for (let body of bodies) {
+        let score = 0;
+
+        // Prefer smaller bodies (confined)
+        score -= body.size / 10000;
+
+        // Prefer higher minimum elevation (valley floor)
+        score += body.minElevation / 10;
+
+        // Strongly penalize bodies touching south or west edges (likely downstream)
+        if (body.edgesTouched.south) score -= 500;
+        if (body.edgesTouched.west) score -= 500;
+
+        // Slightly prefer bodies touching north or east (upstream for most valleys)
+        if (body.edgesTouched.north) score += 50;
+        if (body.edgesTouched.east) score += 50;
+
+        debugLog(`Body ${body.id}: size=${body.size}, minElev=${body.minElevation.toFixed(1)}m, edges=${JSON.stringify(body.edgesTouched)}, score=${score.toFixed(1)}`);
+
+        if (score > bestScore) {
+            bestScore = score;
+            upstreamCandidate = body;
+        }
+    }
+
+    // If we have a clear winner (not touching south/west), select it
+    if (upstreamCandidate && !upstreamCandidate.edgesTouched.south && !upstreamCandidate.edgesTouched.west) {
+        debugLog(`Selected body ${upstreamCandidate.id} as upstream (score=${bestScore.toFixed(1)})`);
+        return upstreamCandidate.cells;
+    }
+
+    // Can't confidently determine - need expansion
+    return null;
 }
