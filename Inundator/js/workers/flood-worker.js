@@ -3,7 +3,7 @@
  * Improved physics-based flooding algorithm
  */
 
-const WORKER_VERSION = "2024.11.19.4";
+const WORKER_VERSION = "2024.11.19.5";
 
 // Worker configuration
 const CONFIG = {
@@ -359,12 +359,17 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
     const dirX = dx / len;
     const dirY = dy / len;
 
-    debugLog(`Dam direction: (${dirX.toFixed(3)}, ${dirY.toFixed(3)}), extending until hitting mountainside > ${crestElevation.toFixed(1)}m`);
+    debugLog(`Dam direction: (${dirX.toFixed(3)}, ${dirY.toFixed(3)}), extending until hitting valley wall`);
+
+    // Get starting elevations at dam endpoints
+    const startElev1 = data[firstCell];
+    const startElev2 = data[lastCell];
 
     // Extend from first endpoint BACKWARD (opposite direction)
     let extCount1 = 0;
     let currentX = x1;
     let currentY = y1;
+    let prevElev1 = startElev1;
 
     for (let i = 0; i < 1000; i++) {  // Max 1000 cells for large valleys
         currentX -= dirX;
@@ -379,23 +384,27 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
         const cell = y * width + x;
         const elevation = data[cell];
 
-        // Stop if we hit mountainside (elevation > crest)
-        if (elevation > crestElevation) {
-            debugLog(`Hit mountainside at endpoint 1 after ${extCount1} cells (elev: ${elevation.toFixed(1)}m)`);
-            break;
-        }
-
         // Stop if no-data
         if (elevation <= CONFIG.noDataValue) break;
 
+        // Stop if we hit mountainside: either above crest OR climbing significantly
+        // This catches valley walls even if they're below the crest elevation
+        const elevIncrease = elevation - prevElev1;
+        if (elevation > crestElevation || elevIncrease > 20) {
+            debugLog(`Hit valley wall at endpoint 1 after ${extCount1} cells (elev: ${elevation.toFixed(1)}m, climb: ${elevIncrease.toFixed(1)}m)`);
+            break;
+        }
+
         barriers.add(cell);
         extCount1++;
+        prevElev1 = elevation;
     }
 
     // Extend from last endpoint FORWARD
     let extCount2 = 0;
     currentX = x2;
     currentY = y2;
+    let prevElev2 = startElev2;
 
     for (let i = 0; i < 1000; i++) {  // Max 1000 cells for large valleys
         currentX += dirX;
@@ -410,17 +419,19 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
         const cell = y * width + x;
         const elevation = data[cell];
 
-        // Stop if we hit mountainside (elevation > crest)
-        if (elevation > crestElevation) {
-            debugLog(`Hit mountainside at endpoint 2 after ${extCount2} cells (elev: ${elevation.toFixed(1)}m)`);
-            break;
-        }
-
         // Stop if no-data
         if (elevation <= CONFIG.noDataValue) break;
 
+        // Stop if we hit mountainside: either above crest OR climbing significantly
+        const elevIncrease = elevation - prevElev2;
+        if (elevation > crestElevation || elevIncrease > 20) {
+            debugLog(`Hit valley wall at endpoint 2 after ${extCount2} cells (elev: ${elevation.toFixed(1)}m, climb: ${elevIncrease.toFixed(1)}m)`);
+            break;
+        }
+
         barriers.add(cell);
         extCount2++;
+        prevElev2 = elevation;
     }
 
     debugLog(`Dam extended: +${extCount1} cells from start, +${extCount2} cells from end (total ${barriers.size} barrier cells)`);
