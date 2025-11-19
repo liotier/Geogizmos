@@ -196,7 +196,8 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
 
     let iterations = 0;
     let lastEdgeCheck = 0;
-    const edgeCheckInterval = 10000;  // Check for edge proximity every N iterations
+    const edgeCheckInterval = 50000;  // Check for edge proximity every N iterations
+    const minIterationsBeforeCheck = 50000;  // Don't check until at least this many iterations
 
     while (queue.length > 0 && iterations < CONFIG.maxIterations) {
         iterations++;
@@ -207,7 +208,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
         }
 
         // Periodically check if flooding is approaching DEM edge
-        if (iterations - lastEdgeCheck >= edgeCheckInterval) {
+        if (iterations >= minIterationsBeforeCheck && iterations - lastEdgeCheck >= edgeCheckInterval) {
             lastEdgeCheck = iterations;
             if (isApproachingEdge(flooded, width, height)) {
                 debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
