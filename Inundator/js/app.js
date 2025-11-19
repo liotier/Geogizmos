@@ -34,6 +34,7 @@ export class InundatorApp {
         this.waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
         this.safetyMargin = CONFIG.dam.defaultSafetyMargin;
         this.searchTimeout = null;
+        this.currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
 
         this.init();
     }
@@ -84,6 +85,8 @@ export class InundatorApp {
                 console.log('%c[Worker] ' + e.data.debug, 'color: blue');
             } else if (e.data.progress !== undefined) {
                 this.updateProgress(e.data.progress);
+            } else if (e.data.needMoreDEM) {
+                this.handleDEMExpansionRequest(e.data);
             } else if (e.data.flooded) {
                 this.onFloodFillComplete(e.data.flooded);
             }
@@ -305,10 +308,13 @@ export class InundatorApp {
             return;
         }
 
+        // Reset buffer to initial size for new computation
+        this.currentBufferKm = CONFIG.dem.bufferKm;
+
         this.showStatus('Fetching elevation data...');
 
         try {
-            const bounds = DamGeometry.calculateDEMBounds(this.damLine);
+            const bounds = DamGeometry.calculateDEMBounds(this.damLine, this.currentBufferKm);
 
             this.showStatus('Loading terrain data...');
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
@@ -340,6 +346,44 @@ export class InundatorApp {
             damCells: damCells,
             crestElevation: effectiveCrest
         });
+    }
+
+    async handleDEMExpansionRequest(data) {
+        console.log(`DEM expansion requested at ${data.currentSize} cells (iteration ${data.iterations})`);
+
+        // Double the buffer size, up to maximum
+        const newBufferKm = Math.min(this.currentBufferKm * 2, CONFIG.dem.maxBufferKm);
+
+        if (newBufferKm === this.currentBufferKm) {
+            console.warn('Already at maximum buffer size, cannot expand further');
+            this.showMessage('Lake reached maximum computable extent', 'warning');
+            this.hideStatus();
+            return;
+        }
+
+        this.currentBufferKm = newBufferKm;
+        console.log(`Expanding DEM buffer from ${this.currentBufferKm / 2}km to ${newBufferKm}km`);
+        this.showMessage(`Lake extending beyond initial area - expanding to ${newBufferKm}km radius...`, 'info');
+
+        // Re-fetch DEM with larger buffer
+        try {
+            this.showStatus(`Expanding terrain data to ${newBufferKm}km radius...`);
+
+            const bounds = DamGeometry.calculateDEMBounds(this.damLine, newBufferKm);
+            const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
+                this.updateProgress(progress);
+            });
+            this.demData = demData;
+
+            // Restart flooding with expanded DEM
+            this.showStatus('Resuming flood computation with expanded area...');
+            await this.runFloodFill(demData);
+
+        } catch (error) {
+            console.error('DEM expansion error:', error);
+            this.showMessage('Failed to expand terrain data: ' + error.message, 'error');
+            this.hideStatus();
+        }
     }
 
     onFloodFillComplete(floodedCells) {

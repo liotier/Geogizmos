@@ -67,12 +67,14 @@ export class DamGeometry {
 
     /**
      * Calculate bounding box with buffer for DEM fetch
+     * @param {object} damLine - GeoJSON line feature
+     * @param {number} bufferKm - Optional buffer distance in km (defaults to CONFIG value)
      */
-    static calculateDEMBounds(damLine) {
+    static calculateDEMBounds(damLine, bufferKm = null) {
         const center = window.turf.center(damLine);
         const [centerLng, centerLat] = center.geometry.coordinates;
 
-        const buffer = CONFIG.dem.bufferKm;
+        const buffer = bufferKm || CONFIG.dem.bufferKm;
 
         const bounds = [
             centerLng - buffer / 111, // West

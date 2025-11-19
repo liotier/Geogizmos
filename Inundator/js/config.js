@@ -13,7 +13,11 @@ export const CONFIG = {
         queryZoom: 15,
 
         // Buffer around dam for DEM fetch (km)
+        // Starts at 10km, expands dynamically if lake reaches edge
         bufferKm: 10,
+
+        // Maximum buffer for dynamic expansion (km)
+        maxBufferKm: 100,
 
         // Zoom level for DEM grid (adaptive based on area)
         adaptiveZoom: {
