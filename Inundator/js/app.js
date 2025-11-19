@@ -36,6 +36,7 @@ export class InundatorApp {
         this.searchTimeout = null;
         this.currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
         this.currentBounds = null; // Track current DEM bounds [west, south, east, north]
+        this.downstreamRejectionCount = 0; // Track consecutive downstream rejections
 
         this.init();
     }
@@ -299,6 +300,9 @@ export class InundatorApp {
     async computeInundation() {
         if (!this.damLine) return;
 
+        // Reset downstream rejection counter for new computation
+        this.downstreamRejectionCount = 0;
+
         // Calculate crest elevation if not already set
         if (!this.crestElevation) {
             await this.calculateCrestElevation();
@@ -352,6 +356,22 @@ export class InundatorApp {
 
     async handleDEMExpansionRequest(data) {
         console.log(`DEM expansion requested at ${data.currentSize} cells (iteration ${data.iterations})`);
+
+        // Track downstream rejections and stop if we keep finding only downstream
+        if (data.foundDownstream) {
+            this.downstreamRejectionCount++;
+            console.warn(`Downstream body rejected (${this.downstreamRejectionCount} times)`);
+
+            if (this.downstreamRejectionCount >= 3) {
+                console.error('No upstream reservoir found after 3 attempts - only downstream flow detected');
+                this.showMessage('No viable upstream reservoir at this location - water flows downstream only', 'error');
+                this.hideStatus();
+                return;
+            }
+        } else {
+            // Reset counter if we're not finding downstream (might find upstream on next expansion)
+            this.downstreamRejectionCount = 0;
+        }
 
         // Identify which directions to expand
         const edges = data.edges || { north: true, south: true, east: true, west: true };
