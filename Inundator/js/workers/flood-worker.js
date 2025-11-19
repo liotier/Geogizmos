@@ -3,6 +3,8 @@
  * Improved physics-based flooding algorithm
  */
 
+const WORKER_VERSION = "2024.11.19.2";
+
 // Worker configuration
 const CONFIG = {
     maxIterations: 20000000,  // Increased 10x for massive valley lakes
@@ -100,7 +102,7 @@ self.addEventListener('message', function (e) {
 
         self.postMessage({ progress: 0.1 });
 
-        debugLog(`Worker initialized: ${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m`);
+        debugLog(`Worker v${WORKER_VERSION}: ${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m`);
 
         const flooded = performPhysicsBasedFlood(demData, damCells, crestElevation);
 
@@ -217,21 +219,26 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
                 debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - checking for confined bodies`);
 
                 // Try to identify a confined upstream body before requesting expansion
-                const confinedBody = checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells, minSeedElevation);
+                const confinedBodyResult = checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells, minSeedElevation);
 
-                if (confinedBody) {
+                if (confinedBodyResult && confinedBodyResult.cells) {
                     // Found a confined body - select it as upstream and finish
                     debugLog(`Confined body identified - stopping expansion and selecting upstream`);
-                    return confinedBody;
+                    return confinedBodyResult.cells;
                 }
 
                 // Couldn't identify confined body - request expansion
-                debugLog(`No confined body found - requesting expansion`);
+                const foundDownstream = confinedBodyResult && confinedBodyResult.downstream;
+                debugLog(foundDownstream ?
+                    `Found only downstream bodies - requesting expansion` :
+                    `No confined body found - requesting expansion`);
+
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
                     iterations: iterations,
-                    edges: edgeInfo
+                    edges: edgeInfo,
+                    foundDownstream: foundDownstream  // Signal if we found and rejected downstream
                 });
                 return null;  // Return null to signal expansion (don't send completion message)
             }
@@ -979,14 +986,14 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
         const elevationDrop = minSeedElevation - body.minElevation;
         if (elevationDrop > 100) {
             debugLog(`Confined body is downstream (${elevationDrop.toFixed(1)}m below seed elevation) - rejecting`);
-            return null;  // This is downstream, need expansion to find upstream
+            return { downstream: true };  // Signal that we found downstream
         }
 
         // A fully confined body (not touching any edges) at appropriate elevation IS the upstream reservoir
         // Accept it immediately regardless of fill level - the deficit just means
         // the upstream valley doesn't reach the dam crest elevation
         debugLog(`Confined body selected as upstream (fully enclosed, appropriate elevation)`);
-        return body.cells;
+        return { cells: body.cells };
     }
 
     // If all bodies touch edges, analyze which is likely upstream
@@ -1037,7 +1044,7 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
         const elevationDrop = minSeedElevation - upstreamCandidate.minElevation;
         if (elevationDrop > 100) {
             debugLog(`Upstream candidate is downstream (${elevationDrop.toFixed(1)}m below seed elevation) - rejecting`);
-            return null;  // This is downstream, need expansion to find upstream
+            return { downstream: true };  // Signal that we found downstream
         }
 
         // Accept upstream candidates with large deficits - the valley may not reach dam elevation
@@ -1048,7 +1055,7 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
         }
 
         debugLog(`Selected body ${upstreamCandidate.id} as upstream`);
-        return upstreamCandidate.cells;
+        return { cells: upstreamCandidate.cells };
     }
 
     // Can't confidently determine - need expansion
