@@ -13,7 +13,8 @@ export const CONFIG = {
         queryZoom: 15,
 
         // Buffer around dam for DEM fetch (km)
-        bufferKm: 10,
+        // Increased to 50km to support massive valley reservoirs
+        bufferKm: 50,
 
         // Zoom level for DEM grid (adaptive based on area)
         adaptiveZoom: {
