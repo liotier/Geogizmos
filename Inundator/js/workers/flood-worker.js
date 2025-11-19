@@ -8,6 +8,7 @@ const CONFIG = {
     maxIterations: 20000000,  // Increased 10x for massive valley lakes
     maxDebugMessages: 100,    // Reduced to minimize overhead
     progressUpdateInterval: 100000,  // Less frequent updates = faster computation
+    edgeProximityThreshold: 100,  // Cells from edge to trigger expansion
     noDataValue: -9999,
     minBodySize: 100,
     maxBodySize: 2000000,     // Increased 10x for massive reservoirs
@@ -191,6 +192,8 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
     debugLog(`Starting physics-based flood from 2 valley bottom seeds`);
 
     let iterations = 0;
+    let lastEdgeCheck = 0;
+    const edgeCheckInterval = 10000;  // Check for edge proximity every N iterations
 
     while (queue.length > 0 && iterations < CONFIG.maxIterations) {
         iterations++;
@@ -198,6 +201,20 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
         if (iterations % CONFIG.progressUpdateInterval === 0) {
             debugLog(`Iteration ${iterations}, queue: ${queue.length}, flooded: ${flooded.size}`);
             self.postMessage({ progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.4 });
+        }
+
+        // Periodically check if flooding is approaching DEM edge
+        if (iterations - lastEdgeCheck >= edgeCheckInterval) {
+            lastEdgeCheck = iterations;
+            if (isApproachingEdge(flooded, width, height)) {
+                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
+                self.postMessage({
+                    needMoreDEM: true,
+                    currentSize: flooded.size,
+                    iterations: iterations
+                });
+                return new Set();  // Return empty, will restart with larger DEM
+            }
         }
 
         // Extract lowest elevation cell from min-heap (O(log n) instead of O(n log n) sort)
@@ -829,4 +846,24 @@ function getNeighbors(cell, width, height) {
     if (y < height - 1) neighbors.push(cell + width);
 
     return neighbors;
+}
+
+/**
+ * Check if flooding is approaching DEM edge
+ * Returns true if any flooded cells are within threshold distance of edge
+ */
+function isApproachingEdge(flooded, width, height) {
+    const threshold = CONFIG.edgeProximityThreshold;
+
+    for (let cell of flooded) {
+        const x = cell % width;
+        const y = Math.floor(cell / width);
+
+        if (x < threshold || x >= width - threshold ||
+            y < threshold || y >= height - threshold) {
+            return true;
+        }
+    }
+
+    return false;
 }
