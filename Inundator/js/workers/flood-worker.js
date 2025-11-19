@@ -921,8 +921,21 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
     const confinedBodies = bodies.filter(body => !body.touchesEdge);
 
     if (confinedBodies.length === 1) {
-        debugLog(`Found confined body ${confinedBodies[0].id} (${confinedBodies[0].size} cells) - this is upstream`);
-        return confinedBodies[0].cells;
+        const body = confinedBodies[0];
+        const fillLevel = body.maxElevation;
+        const fillDeficit = crestElevation - fillLevel;
+
+        debugLog(`Found confined body ${body.id} (${body.size} cells), maxElev=${fillLevel.toFixed(1)}m, crest=${crestElevation.toFixed(1)}m, deficit=${fillDeficit.toFixed(1)}m`);
+
+        // Check if body has filled close to crest elevation
+        // If there's a significant deficit (>10m), the body hasn't finished filling yet
+        if (fillDeficit > 10) {
+            debugLog(`Confined body not filled to crest (deficit ${fillDeficit.toFixed(1)}m) - continuing flood`);
+            return null;  // Let flooding continue
+        }
+
+        debugLog(`Confined body filled to crest - selecting as upstream`);
+        return body.cells;
     }
 
     // If all bodies touch edges, analyze which is likely upstream
@@ -959,9 +972,20 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
         }
     }
 
-    // If we have a clear winner (not touching south/west), select it
+    // If we have a clear winner (not touching south/west), check if it's filled to crest
     if (upstreamCandidate && !upstreamCandidate.edgesTouched.south && !upstreamCandidate.edgesTouched.west) {
-        debugLog(`Selected body ${upstreamCandidate.id} as upstream (score=${bestScore.toFixed(1)})`);
+        const fillLevel = upstreamCandidate.maxElevation;
+        const fillDeficit = crestElevation - fillLevel;
+
+        debugLog(`Upstream candidate body ${upstreamCandidate.id} (score=${bestScore.toFixed(1)}), maxElev=${fillLevel.toFixed(1)}m, deficit=${fillDeficit.toFixed(1)}m`);
+
+        // Check if body has filled close to crest elevation
+        if (fillDeficit > 10) {
+            debugLog(`Upstream candidate not filled to crest (deficit ${fillDeficit.toFixed(1)}m) - continuing flood`);
+            return null;  // Let flooding continue
+        }
+
+        debugLog(`Selected body ${upstreamCandidate.id} as upstream (filled to crest)`);
         return upstreamCandidate.cells;
     }
 
