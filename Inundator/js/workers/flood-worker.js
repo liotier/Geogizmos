@@ -968,14 +968,10 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
 
         debugLog(`Found confined body ${body.id} (${body.size} cells), maxElev=${fillLevel.toFixed(1)}m, crest=${crestElevation.toFixed(1)}m, deficit=${fillDeficit.toFixed(1)}m`);
 
-        // Check if body has filled close to crest elevation
-        // If there's a significant deficit (>10m), the body hasn't finished filling yet
-        if (fillDeficit > 10) {
-            debugLog(`Confined body not filled to crest (deficit ${fillDeficit.toFixed(1)}m) - continuing flood`);
-            return null;  // Let flooding continue
-        }
-
-        debugLog(`Confined body filled to crest - selecting as upstream`);
+        // A fully confined body (not touching any edges) IS the upstream reservoir
+        // Accept it immediately regardless of fill level - the deficit just means
+        // the upstream valley doesn't reach the dam crest elevation
+        debugLog(`Confined body selected as upstream (fully enclosed)`);
         return body.cells;
     }
 
@@ -1016,20 +1012,21 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
         }
     }
 
-    // If we have a clear winner (not touching south/west), check if it's filled to crest
+    // If we have a clear winner (not touching south/west), accept it with relaxed fill criteria
     if (upstreamCandidate && !upstreamCandidate.edgesTouched.south && !upstreamCandidate.edgesTouched.west) {
         const fillLevel = upstreamCandidate.maxElevation;
         const fillDeficit = crestElevation - fillLevel;
 
         debugLog(`Upstream candidate body ${upstreamCandidate.id} (score=${bestScore.toFixed(1)}), maxElev=${fillLevel.toFixed(1)}m, deficit=${fillDeficit.toFixed(1)}m`);
 
-        // Check if body has filled close to crest elevation
-        if (fillDeficit > 10) {
-            debugLog(`Upstream candidate not filled to crest (deficit ${fillDeficit.toFixed(1)}m) - continuing flood`);
+        // Accept upstream candidates with large deficits - the valley may not reach dam elevation
+        // Only reject if deficit is extreme (>200m), which suggests we haven't found the real valley yet
+        if (fillDeficit > 200) {
+            debugLog(`Upstream candidate deficit too large (${fillDeficit.toFixed(1)}m) - continuing flood`);
             return null;  // Let flooding continue
         }
 
-        debugLog(`Selected body ${upstreamCandidate.id} as upstream (filled to crest)`);
+        debugLog(`Selected body ${upstreamCandidate.id} as upstream`);
         return upstreamCandidate.cells;
     }
 
