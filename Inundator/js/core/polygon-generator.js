@@ -12,7 +12,7 @@ export class PolygonGenerator {
     static createFloodPolygon(floodedCells, demData) {
         if (!floodedCells || floodedCells.length === 0) return null;
 
-        const { width, height, zoom, tileBounds } = demData;
+        const { width, height, zoom, tileBounds, minX, minY } = demData;
 
         console.log(`Creating flood polygon from ${floodedCells.length} cells, grid size: ${width}x${height}`);
 
@@ -66,7 +66,7 @@ export class PolygonGenerator {
         }
 
         // Transform to geographic coordinates
-        const geoRings = this.transformRingsToGeo(allRings, zoom, tileBounds, width, height);
+        const geoRings = this.transformRingsToGeo(allRings, zoom, tileBounds, width, height, minX, minY);
 
         if (geoRings.length === 0) {
             console.log('No valid geographic rings created');
@@ -118,10 +118,14 @@ export class PolygonGenerator {
     /**
      * Transform pixel rings to geographic coordinates
      */
-    static transformRingsToGeo(rings, zoom, tileBounds, width, height) {
+    static transformRingsToGeo(rings, zoom, tileBounds, width, height, minX, minY) {
         const [tileWest, tileNorth] = tileBounds;
         const n = Math.pow(2, zoom);
         const geoRings = [];
+
+        // Calculate origin tile coordinates from minX/minY offsets
+        const originTileWest = tileWest - minX / CONFIG.dem.tileSize;
+        const originTileNorth = tileNorth - minY / CONFIG.dem.tileSize;
 
         for (const ring of rings) {
             const geoRing = [];
@@ -134,14 +138,18 @@ export class PolygonGenerator {
                 let x = point[0];
                 let y = point[1];
 
-                // Validate pixel coordinates
+                // Validate array coordinates
                 if (isNaN(x) || isNaN(y) || x < 0 || x > width || y < 0 || y > height) {
                     continue;
                 }
 
-                // Convert pixel to tile coordinates
-                const tileX = tileWest + (x / CONFIG.dem.tileSize);
-                const tileY = tileNorth + (y / CONFIG.dem.tileSize);
+                // Convert array coordinates to logical grid coordinates (can be negative)
+                const gridX = x + minX;
+                const gridY = y + minY;
+
+                // Convert grid to tile coordinates
+                const tileX = originTileWest + (gridX / CONFIG.dem.tileSize);
+                const tileY = originTileNorth + (gridY / CONFIG.dem.tileSize);
 
                 // Convert tile to lng/lat
                 const lng = (tileX / n) * 360 - 180;

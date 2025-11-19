@@ -37,6 +37,10 @@ export class DamGeometry {
         const n = Math.pow(2, demData.zoom);
         const [tileWest, tileNorth] = demData.tileBounds;
 
+        // Calculate origin tile coordinates from minX/minY offsets
+        const originTileWest = tileWest - demData.minX / CONFIG.dem.tileSize;
+        const originTileNorth = tileNorth - demData.minY / CONFIG.dem.tileSize;
+
         console.log('Getting dam cells for', samples.length, 'sample points');
 
         for (const [lng, lat] of samples) {
@@ -45,18 +49,22 @@ export class DamGeometry {
             const tileY = (1 - Math.log(Math.tan(lat * Math.PI / 180) +
                 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n;
 
-            // Convert to pixel coordinates within our DEM grid
-            const pixelX = Math.floor((tileX - tileWest) * CONFIG.dem.tileSize);
-            const pixelY = Math.floor((tileY - tileNorth) * CONFIG.dem.tileSize);
+            // Convert to logical grid coordinates (relative to origin, can be negative)
+            const gridX = Math.floor((tileX - originTileWest) * CONFIG.dem.tileSize);
+            const gridY = Math.floor((tileY - originTileNorth) * CONFIG.dem.tileSize);
 
-            if (pixelX >= 0 && pixelX < demData.width &&
-                pixelY >= 0 && pixelY < demData.height) {
-                const cell = pixelY * demData.width + pixelX;
+            // Convert to array indices (0-based within current DEM)
+            const arrayX = gridX - demData.minX;
+            const arrayY = gridY - demData.minY;
+
+            if (arrayX >= 0 && arrayX < demData.width &&
+                arrayY >= 0 && arrayY < demData.height) {
+                const cell = arrayY * demData.width + arrayX;
                 damCells.push(cell);
 
                 // Debug first few cells
                 if (damCells.length <= 3) {
-                    console.log(`Dam point: lng=${lng.toFixed(4)}, lat=${lat.toFixed(4)} -> tile=(${tileX.toFixed(2)}, ${tileY.toFixed(2)}) -> pixel=(${pixelX}, ${pixelY}) -> cell=${cell}`);
+                    console.log(`Dam point: lng=${lng.toFixed(4)}, lat=${lat.toFixed(4)} -> tile=(${tileX.toFixed(2)}, ${tileY.toFixed(2)}) -> grid=(${gridX}, ${gridY}) -> array=(${arrayX}, ${arrayY}) -> cell=${cell}`);
                 }
             }
         }
