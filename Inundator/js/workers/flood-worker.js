@@ -8,7 +8,7 @@ const CONFIG = {
     maxIterations: 20000000,  // Increased 10x for massive valley lakes
     maxDebugMessages: 100,    // Reduced to minimize overhead
     progressUpdateInterval: 100000,  // Less frequent updates = faster computation
-    edgeProximityThreshold: 100,  // Cells from edge to trigger expansion
+    edgeProximityThreshold: 500,  // Cells from edge to trigger expansion (increased for less aggressive expansion)
     noDataValue: -9999,
     minBodySize: 100,
     maxBodySize: 2000000,     // Increased 10x for massive reservoirs
@@ -210,12 +210,14 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
         // Periodically check if flooding is approaching DEM edge
         if (iterations >= minIterationsBeforeCheck && iterations - lastEdgeCheck >= edgeCheckInterval) {
             lastEdgeCheck = iterations;
-            if (isApproachingEdge(flooded, width, height)) {
+            const edgeInfo = isApproachingEdge(flooded, width, height);
+            if (edgeInfo) {
                 debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
-                    iterations: iterations
+                    iterations: iterations,
+                    edges: edgeInfo
                 });
                 return null;  // Return null to signal expansion (don't send completion message)
             }
@@ -858,16 +860,28 @@ function getNeighbors(cell, width, height) {
  */
 function isApproachingEdge(flooded, width, height) {
     const threshold = CONFIG.edgeProximityThreshold;
+    const edges = { west: false, east: false, north: false, south: false };
 
     for (let cell of flooded) {
         const x = cell % width;
         const y = Math.floor(cell / width);
 
-        if (x < threshold || x >= width - threshold ||
-            y < threshold || y >= height - threshold) {
-            return true;
-        }
+        if (x < threshold) edges.west = true;
+        if (x >= width - threshold) edges.east = true;
+        if (y < threshold) edges.north = true;
+        if (y >= height - threshold) edges.south = true;
     }
 
-    return false;
+    const approaching = edges.west || edges.east || edges.north || edges.south;
+
+    if (approaching) {
+        const directions = [];
+        if (edges.north) directions.push('north');
+        if (edges.south) directions.push('south');
+        if (edges.east) directions.push('east');
+        if (edges.west) directions.push('west');
+        debugLog(`Approaching edges: ${directions.join(', ')}`);
+    }
+
+    return approaching ? edges : null;
 }

@@ -35,6 +35,7 @@ export class InundatorApp {
         this.safetyMargin = CONFIG.dam.defaultSafetyMargin;
         this.searchTimeout = null;
         this.currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
+        this.currentBounds = null; // Track current DEM bounds [west, south, east, north]
 
         this.init();
     }
@@ -315,6 +316,7 @@ export class InundatorApp {
 
         try {
             const bounds = DamGeometry.calculateDEMBounds(this.damLine, this.currentBufferKm);
+            this.currentBounds = bounds; // Store initial bounds for directional expansion
 
             this.showStatus('Loading terrain data...');
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
@@ -351,25 +353,41 @@ export class InundatorApp {
     async handleDEMExpansionRequest(data) {
         console.log(`DEM expansion requested at ${data.currentSize} cells (iteration ${data.iterations})`);
 
-        // Double the buffer size, up to maximum
-        const newBufferKm = Math.min(this.currentBufferKm * 2, CONFIG.dem.maxBufferKm);
+        // Identify which directions to expand
+        const edges = data.edges || { north: true, south: true, east: true, west: true };
+        const directions = [];
+        if (edges.north) directions.push('north');
+        if (edges.south) directions.push('south');
+        if (edges.east) directions.push('east');
+        if (edges.west) directions.push('west');
 
-        if (newBufferKm === this.currentBufferKm) {
+        console.log(`Expanding in directions: ${directions.join(', ')}`);
+
+        // Calculate expansion amount (start with 10km, then increase)
+        const expansionKm = Math.min(this.currentBufferKm, 20); // Expand by current buffer or 20km, whichever is smaller
+
+        // Check if we're within tile limits
+        const testBounds = DamGeometry.expandBounds(this.currentBounds, edges, expansionKm);
+        const boundsWidth = (testBounds[2] - testBounds[0]) * 111;  // Degrees to km
+        const boundsHeight = (testBounds[3] - testBounds[1]) * 111;
+
+        if (boundsWidth > CONFIG.dem.maxBufferKm * 2 || boundsHeight > CONFIG.dem.maxBufferKm * 2) {
             console.warn('Already at maximum buffer size, cannot expand further');
             this.showMessage('Lake reached maximum computable extent', 'warning');
             this.hideStatus();
             return;
         }
 
-        this.currentBufferKm = newBufferKm;
-        console.log(`Expanding DEM buffer from ${this.currentBufferKm / 2}km to ${newBufferKm}km`);
-        this.showMessage(`Lake extending beyond initial area - expanding to ${newBufferKm}km radius...`, 'info');
+        this.currentBufferKm += expansionKm;
+        this.showMessage(`Lake extending ${directions.join('/')} - expanding terrain data...`, 'info');
 
-        // Re-fetch DEM with larger buffer
+        // Re-fetch DEM with expanded bounds
         try {
-            this.showStatus(`Expanding terrain data to ${newBufferKm}km radius...`);
+            this.showStatus(`Expanding terrain data ${directions.join('/')} by ${expansionKm}km...`);
 
-            const bounds = DamGeometry.calculateDEMBounds(this.damLine, newBufferKm);
+            const bounds = DamGeometry.expandBounds(this.currentBounds, edges, expansionKm);
+            this.currentBounds = bounds; // Update tracked bounds
+
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
                 this.updateProgress(progress);
             });
