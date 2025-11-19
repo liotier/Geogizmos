@@ -3,14 +3,14 @@
  * Improved physics-based flooding algorithm
  */
 
-const WORKER_VERSION = "2024.11.19.6";
+const WORKER_VERSION = "2024.11.19.7";
 
 // Worker configuration
 const CONFIG = {
-    maxIterations: 5000000,   // Limit for safety
+    maxIterations: 20000000,  // Allow for massive valley lakes up to 30km+
     maxDebugMessages: 100,
     progressUpdateInterval: 50000,
-    edgeProximityThreshold: 200,  // Check for edge proximity more conservatively
+    edgeProximityThreshold: 200,  // Check for edge proximity conservatively (2-4km from edge)
     noDataValue: -9999,
     safetyMargin: 1.0,        // Meters below dam crest to stop flooding
     minReservoirSize: 10,     // Minimum cells to be considered valid reservoir
