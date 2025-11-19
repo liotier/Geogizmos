@@ -104,7 +104,10 @@ self.addEventListener('message', function (e) {
 
         const flooded = performPhysicsBasedFlood(demData, damCells, crestElevation);
 
-        self.postMessage({ flooded: Array.from(flooded) });
+        // Only send completion if we got actual results (null means expansion requested)
+        if (flooded !== null) {
+            self.postMessage({ flooded: Array.from(flooded) });
+        }
     } catch (error) {
         self.postMessage({
             error: 'Worker error: ' + error.toString() + ' at ' + error.stack
@@ -213,7 +216,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
                     currentSize: flooded.size,
                     iterations: iterations
                 });
-                return new Set();  // Return empty, will restart with larger DEM
+                return null;  // Return null to signal expansion (don't send completion message)
             }
         }
 
