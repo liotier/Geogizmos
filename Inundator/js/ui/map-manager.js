@@ -46,6 +46,12 @@ export class MapManager {
 
         this.map.addControl(new window.maplibregl.NavigationControl());
 
+        // Add scale bar (metric) at bottom-left
+        this.map.addControl(new window.maplibregl.ScaleControl({
+            maxWidth: 100,
+            unit: 'metric'
+        }), 'bottom-left');
+
         // Set up event handlers
         this.map.on('click', (e) => {
             if (this.onMapClick) {
