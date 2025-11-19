@@ -5,9 +5,78 @@
 
 import { CONFIG } from '../config.js';
 
+/**
+ * IndexedDB cache for DEM tiles
+ */
+class TileDBCache {
+    constructor() {
+        this.dbName = 'InundatorDEMCache';
+        this.storeName = 'tiles';
+        this.version = 1;
+        this.db = null;
+        this.initPromise = this.init();
+    }
+
+    async init() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, this.version);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                this.db = request.result;
+                resolve();
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName);
+                }
+            };
+        });
+    }
+
+    async get(key) {
+        await this.initPromise;
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(key);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async put(key, value) {
+        await this.initPromise;
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], 'readwrite');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.put(value, key);
+
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async clear() {
+        await this.initPromise;
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], 'readwrite');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.clear();
+
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+}
+
 export class ElevationService {
     constructor() {
-        this.tileCache = new Map();
+        this.tileCache = new Map(); // In-memory cache for current session
+        this.dbCache = new TileDBCache(); // Persistent IndexedDB cache
     }
 
     /**
@@ -25,12 +94,21 @@ export class ElevationService {
         const tileKey = `${zoom}/${tileX}/${tileY}`;
 
         if (!this.tileCache.has(tileKey)) {
-            const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
-
             try {
-                const response = await fetch(url);
-                const blob = await response.blob();
-                const imageData = await this.loadImageData(blob);
+                // Check IndexedDB cache first
+                let imageData = await this.dbCache.get(tileKey);
+
+                if (!imageData) {
+                    // Fetch from network if not in IndexedDB
+                    const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    imageData = await this.loadImageData(blob);
+
+                    // Store in IndexedDB for future use
+                    await this.dbCache.put(tileKey, imageData);
+                }
+
                 this.tileCache.set(tileKey, imageData);
             } catch (error) {
                 console.warn(`Failed to fetch tile ${tileKey}:`, error);
@@ -115,12 +193,24 @@ export class ElevationService {
 
         for (let ty = tileNorth; ty <= tileNorth + tilesY - 1; ty++) {
             for (let tx = tileWest; tx <= tileWest + tilesX - 1; tx++) {
-                const url = `${CONFIG.dem.tileServer}/${zoom}/${tx}/${ty}.png`;
+                const tileKey = `${zoom}/${tx}/${ty}`;
+                let imageData = null;
 
                 try {
-                    const response = await fetch(url);
-                    const blob = await response.blob();
-                    const imageData = await this.loadImageData(blob);
+                    // Check IndexedDB cache first
+                    const cachedData = await this.dbCache.get(tileKey);
+                    if (cachedData) {
+                        imageData = cachedData;
+                    } else {
+                        // Fetch from network
+                        const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
+                        const response = await fetch(url);
+                        const blob = await response.blob();
+                        imageData = await this.loadImageData(blob);
+
+                        // Store in IndexedDB cache for future use
+                        await this.dbCache.put(tileKey, imageData);
+                    }
 
                     // Copy to elevation array
                     const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
@@ -141,7 +231,7 @@ export class ElevationService {
                     }
 
                 } catch (error) {
-                    console.warn(`Failed to load tile ${zoom}/${tx}/${ty}:`, error);
+                    console.warn(`Failed to load tile ${tileKey}:`, error);
                     // Fill with no-data value
                     const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
                     const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;

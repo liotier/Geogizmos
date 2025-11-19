@@ -87,6 +87,24 @@ export class DamGeometry {
     }
 
     /**
+     * Expand bounds in specified directions
+     * @param {Array} currentBounds - Current bounds [west, south, east, north]
+     * @param {object} edges - Which edges to expand {west, south, east, north}
+     * @param {number} expansionKm - How much to expand in km
+     */
+    static expandBounds(currentBounds, edges, expansionKm) {
+        const expansion = expansionKm / 111; // Convert km to degrees (approximate)
+        const [west, south, east, north] = currentBounds;
+
+        return [
+            edges.west ? west - expansion : west,
+            edges.south ? south - expansion : south,
+            edges.east ? east + expansion : east,
+            edges.north ? north + expansion : north
+        ];
+    }
+
+    /**
      * Get approximate cell area in m²
      */
     static getCellArea(demData, damLine) {
