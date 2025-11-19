@@ -3,14 +3,14 @@
  * Improved physics-based flooding algorithm
  */
 
-const WORKER_VERSION = "2024.11.19.3";
+const WORKER_VERSION = "2024.11.19.7";
 
 // Worker configuration
 const CONFIG = {
-    maxIterations: 5000000,   // Limit for safety
+    maxIterations: 20000000,  // Allow for massive valley lakes up to 30km+
     maxDebugMessages: 100,
     progressUpdateInterval: 50000,
-    edgeProximityThreshold: 200,  // Check for edge proximity more conservatively
+    edgeProximityThreshold: 200,  // Check for edge proximity conservatively (2-4km from edge)
     noDataValue: -9999,
     safetyMargin: 1.0,        // Meters below dam crest to stop flooding
     minReservoirSize: 10,     // Minimum cells to be considered valid reservoir
@@ -149,17 +149,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Check if approaching edge - request expansion if needed
             const edgeInfo = isApproachingEdge(flooded, width, height);
             if (edgeInfo) {
-                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells`);
+                debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - requesting expansion`);
 
-                // Check if we have a valid confined body before expanding
-                const hasValidBody = checkForValidReservoir(flooded, visited, width, height, data, crestElevation, damCells);
-
-                if (hasValidBody) {
-                    debugLog(`Found valid confined reservoir - stopping`);
-                    break;
-                }
-
-                // Request expansion
+                // Always request expansion when approaching edges
+                // Don't try to determine "confined" vs "spreading" - let it expand and find natural boundaries
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
@@ -224,9 +217,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 function findValleyFloorSeeds(damCells, barriers, data, width, height, crestElevation) {
     const potentialSeeds = [];
 
-    // Find all cells adjacent to dam
-    for (let damCell of damCells) {
-        const neighbors = getNeighbors(damCell, width, height);
+    // Find all cells adjacent to EXTENDED BARRIER (not just original dam)
+    // This ensures we seed from the full barrier that abuts valley sides
+    for (let barrierCell of barriers) {
+        const neighbors = getNeighbors(barrierCell, width, height);
 
         for (let neighbor of neighbors) {
             if (barriers.has(neighbor)) continue;
@@ -238,7 +232,7 @@ function findValleyFloorSeeds(damCells, barriers, data, width, height, crestElev
         }
     }
 
-    // Remove duplicates and sort by elevation
+    // Remove duplicates
     const uniqueSeeds = new Map();
     for (let seed of potentialSeeds) {
         if (!uniqueSeeds.has(seed.cell)) {
@@ -248,24 +242,6 @@ function findValleyFloorSeeds(damCells, barriers, data, width, height, crestElev
 
     // Return all seeds (breadth-first will handle layer-by-layer growth)
     return Array.from(uniqueSeeds.keys());
-}
-
-/**
- * Check if we have a valid confined reservoir
- */
-function checkForValidReservoir(flooded, visited, width, height, data, crestElevation, damCells) {
-    // Identify water bodies
-    const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
-
-    // Check if any body is fully confined (not touching edges)
-    for (let body of bodies) {
-        if (!body.touchesEdge && body.size >= CONFIG.minReservoirSize) {
-            debugLog(`Found confined reservoir: ${body.size} cells, not touching edges`);
-            return true;
-        }
-    }
-
-    return false;
 }
 
 /**
@@ -383,7 +359,11 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
     const dirX = dx / len;
     const dirY = dy / len;
 
-    debugLog(`Dam direction: (${dirX.toFixed(3)}, ${dirY.toFixed(3)}), extending until hitting mountainside > ${crestElevation.toFixed(1)}m`);
+    debugLog(`Dam direction: (${dirX.toFixed(3)}, ${dirY.toFixed(3)}), extending until hitting valley wall`);
+
+    // Get starting elevations at dam endpoints
+    const startElev1 = data[firstCell];
+    const startElev2 = data[lastCell];
 
     // Extend from first endpoint BACKWARD (opposite direction)
     let extCount1 = 0;
@@ -403,14 +383,16 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
         const cell = y * width + x;
         const elevation = data[cell];
 
-        // Stop if we hit mountainside (elevation > crest)
-        if (elevation > crestElevation) {
-            debugLog(`Hit mountainside at endpoint 1 after ${extCount1} cells (elev: ${elevation.toFixed(1)}m)`);
-            break;
-        }
-
         // Stop if no-data
         if (elevation <= CONFIG.noDataValue) break;
+
+        // Stop if we hit valley wall: either above crest OR cumulative climb from start
+        // Using cumulative climb catches gradual slopes (e.g., V-shaped valley walls)
+        const cumulativeClimb = elevation - startElev1;
+        if (elevation > crestElevation || cumulativeClimb > 20) {
+            debugLog(`Hit valley wall at endpoint 1 after ${extCount1} cells (elev: ${elevation.toFixed(1)}m, climb: ${cumulativeClimb.toFixed(1)}m)`);
+            break;
+        }
 
         barriers.add(cell);
         extCount1++;
@@ -434,14 +416,15 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
         const cell = y * width + x;
         const elevation = data[cell];
 
-        // Stop if we hit mountainside (elevation > crest)
-        if (elevation > crestElevation) {
-            debugLog(`Hit mountainside at endpoint 2 after ${extCount2} cells (elev: ${elevation.toFixed(1)}m)`);
-            break;
-        }
-
         // Stop if no-data
         if (elevation <= CONFIG.noDataValue) break;
+
+        // Stop if we hit valley wall: either above crest OR cumulative climb from start
+        const cumulativeClimb = elevation - startElev2;
+        if (elevation > crestElevation || cumulativeClimb > 20) {
+            debugLog(`Hit valley wall at endpoint 2 after ${extCount2} cells (elev: ${elevation.toFixed(1)}m, climb: ${cumulativeClimb.toFixed(1)}m)`);
+            break;
+        }
 
         barriers.add(cell);
         extCount2++;
