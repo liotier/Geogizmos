@@ -917,8 +917,11 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
 
     debugLog(`Checking ${bodies.length} water bodies for confinement`);
 
-    // Check if any body is NOT touching edges (fully confined)
-    const confinedBodies = bodies.filter(body => !body.touchesEdge);
+    // Minimum size for a valid reservoir (ignore tiny artifacts like trapped seed cells)
+    const MIN_RESERVOIR_SIZE = 100;
+
+    // Check if any body is NOT touching edges (fully confined) and large enough to be real
+    const confinedBodies = bodies.filter(body => !body.touchesEdge && body.size >= MIN_RESERVOIR_SIZE);
 
     if (confinedBodies.length === 1) {
         const body = confinedBodies[0];
@@ -947,7 +950,10 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
     let upstreamCandidate = null;
     let bestScore = -Infinity;
 
-    for (let body of bodies) {
+    // Only consider bodies large enough to be real reservoirs
+    const validBodies = bodies.filter(body => body.size >= MIN_RESERVOIR_SIZE);
+
+    for (let body of validBodies) {
         let score = 0;
 
         // Prefer smaller bodies (confined)
