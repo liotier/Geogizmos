@@ -25,6 +25,7 @@ export class InundatorApp {
         this.crestElevation = null;
         this.floodPolygon = null;
         this.demData = null;
+        this.originTileBounds = null; // Track grid origin for negative indices
         this.currentMousePosition = null;
 
         // Worker
@@ -327,8 +328,13 @@ export class InundatorApp {
             this.showStatus('Loading terrain data...');
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
                 this.updateProgress(progress);
-            });
+            }, this.originTileBounds);
             this.demData = demData;
+
+            // Store origin tile bounds from first fetch
+            if (!this.originTileBounds) {
+                this.originTileBounds = demData.tileBounds;
+            }
 
             this.showStatus('Computing flood extent...');
             await this.runFloodFill(demData);
@@ -412,7 +418,7 @@ export class InundatorApp {
 
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
                 this.updateProgress(progress);
-            });
+            }, this.originTileBounds);
             this.demData = demData;
 
             // Restart flooding with expanded DEM

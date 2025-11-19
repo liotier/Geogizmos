@@ -6,9 +6,10 @@
  * - Extend only from lower endpoint until hitting cell higher than dam
  * - Seed from middle of dam, flood all cells below (dam level - 1m)
  * - Real-time upstream/downstream partitioning to prune runaway flooding
+ * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
  */
 
-const WORKER_VERSION = "2024.11.19.11";
+const WORKER_VERSION = "2024.11.19.12";
 
 // Worker configuration
 const CONFIG = {
@@ -22,6 +23,9 @@ const CONFIG = {
     layerCheckInterval: 5000  // Check for stagnation every N cells
 };
 
+// Cached dam geometry - calculated ONCE at start, reused on DEM expansions
+let cachedDamGeometry = null;
+
 let debugMessageCount = 0;
 
 function debugLog(msg) {
@@ -29,6 +33,29 @@ function debugLog(msg) {
         debugMessageCount++;
         self.postMessage({ debug: msg });
     }
+}
+
+/**
+ * Remap cached barrier offsets to new grid after DEM expansion
+ */
+function remapBarrierToNewGrid(barrierOffsets, damCells, width, height) {
+    const barriers = new Set();
+    const firstCell = damCells[0];
+    const x1 = firstCell % width;
+    const y1 = Math.floor(firstCell / width);
+
+    for (let offset of barrierOffsets) {
+        const x = x1 + offset.dx;
+        const y = y1 + offset.dy;
+
+        // Check bounds
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+            const cell = y * width + x;
+            barriers.add(cell);
+        }
+    }
+
+    return barriers;
 }
 
 /**
@@ -94,12 +121,57 @@ self.addEventListener('message', function (e) {
 function performIncrementalFlood(demData, damCells, crestElevation) {
     const { width, height, data } = demData;
 
-    // Create barrier from dam line extended to mountainside
-    // Returns dam level (highest endpoint elevation)
-    const { barriers, damLevel } = extendDamToMountainside(damCells, data, width, height, crestElevation);
+    // Check if we already have cached dam geometry from a previous call
+    // If endpoint elevations match, this is a DEM expansion of the same dam
+    const firstCell = damCells[0];
+    const lastCell = damCells[damCells.length - 1];
+    const elev1 = data[firstCell];
+    const elev2 = data[lastCell];
 
-    // Water level = dam altitude minus 1 meter
-    const maxWaterLevel = damLevel - 1.0;
+    let barriers, damLevel, maxWaterLevel;
+
+    if (cachedDamGeometry &&
+        Math.abs(cachedDamGeometry.elev1 - elev1) < 0.1 &&
+        Math.abs(cachedDamGeometry.elev2 - elev2) < 0.1) {
+        // Same dam - reuse cached geometry
+        damLevel = cachedDamGeometry.damLevel;
+        maxWaterLevel = cachedDamGeometry.maxWaterLevel;
+
+        // Remap cached barrier cells to new grid
+        barriers = remapBarrierToNewGrid(cachedDamGeometry.barrierOffsets, damCells, width, height);
+
+        debugLog(`Reusing cached dam geometry (DEM expansion): dam level ${damLevel.toFixed(1)}m, ${barriers.size} barrier cells`);
+    } else {
+        // New dam - calculate and cache geometry
+        debugLog(`Calculating dam geometry for first time`);
+
+        const result = extendDamToMountainside(damCells, data, width, height, crestElevation);
+        barriers = result.barriers;
+        damLevel = result.damLevel;
+        maxWaterLevel = damLevel - 1.0;
+
+        // Cache dam geometry for future DEM expansions
+        // Store barrier as offsets from first dam cell
+        const barrierOffsets = [];
+        const x1 = firstCell % width;
+        const y1 = Math.floor(firstCell / width);
+
+        for (let cell of barriers) {
+            const x = cell % width;
+            const y = Math.floor(cell / width);
+            barrierOffsets.push({ dx: x - x1, dy: y - y1 });
+        }
+
+        cachedDamGeometry = {
+            elev1,
+            elev2,
+            damLevel,
+            maxWaterLevel,
+            barrierOffsets
+        };
+
+        debugLog(`Cached dam geometry: endpoints ${elev1.toFixed(1)}m, ${elev2.toFixed(1)}m, dam level ${damLevel.toFixed(1)}m`);
+    }
 
     debugLog(`Starting incremental flood: water level = ${maxWaterLevel.toFixed(1)}m (dam level ${damLevel.toFixed(1)}m - 1m)`);
 

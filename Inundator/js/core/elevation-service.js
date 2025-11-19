@@ -153,8 +153,11 @@ export class ElevationService {
 
     /**
      * Fetch DEM data for a geographic bounding box
+     * @param {Array} bounds - [west, south, east, north]
+     * @param {Function} progressCallback - Progress callback
+     * @param {Array} originTileBounds - Original tile bounds [tileWest, tileNorth, tileEast, tileSouth] to use as grid origin (0,0)
      */
-    async fetchDEMData(bounds, progressCallback = null) {
+    async fetchDEMData(bounds, progressCallback = null, originTileBounds = null) {
         const [west, south, east, north] = bounds;
 
         // Determine zoom level based on area
@@ -178,7 +181,16 @@ export class ElevationService {
         const width = tilesX * CONFIG.dem.tileSize;
         const height = tilesY * CONFIG.dem.tileSize;
 
-        console.log(`DEM fetch: zoom=${zoom}, tiles=${tilesX}x${tilesY}, dimensions=${width}x${height}`);
+        // Calculate grid origin offset (negative when expanding west/north)
+        let minX = 0;
+        let minY = 0;
+        if (originTileBounds) {
+            const [originTileWest, originTileNorth] = originTileBounds;
+            minX = (tileWest - originTileWest) * CONFIG.dem.tileSize;
+            minY = (tileNorth - originTileNorth) * CONFIG.dem.tileSize;
+        }
+
+        console.log(`DEM fetch: zoom=${zoom}, tiles=${tilesX}x${tilesY}, dimensions=${width}x${height}, origin offset=(${minX}, ${minY})`);
 
         if (width * height > CONFIG.dem.maxCells) {
             throw new Error('Area too large. Please zoom in or reduce the reservoir size.');
@@ -255,6 +267,8 @@ export class ElevationService {
             data: elevationData,
             width: width,
             height: height,
+            minX: minX,  // Grid origin offset - negative when expanding west/north
+            minY: minY,
             tileBounds: [tileWest, tileNorth, tileWest + tilesX - 1, tileNorth + tilesY - 1],
             zoom: zoom,
             geoBounds: bounds
