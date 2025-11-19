@@ -1,9 +1,10 @@
 /**
  * Flood Fill Worker
- * Improved physics-based flooding algorithm
+ * Simple fixed-water-level flooding algorithm
+ * Water level is constant at dam crest - flood all contiguous cells below that elevation
  */
 
-const WORKER_VERSION = "2024.11.19.8";
+const WORKER_VERSION = "2024.11.19.9";
 
 // Worker configuration
 const CONFIG = {
@@ -111,15 +112,15 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     debugLog(`Starting from ${seeds.length} seed cells at valley floor`);
 
-    // Breadth-first flood - grow layer by layer
+    // Breadth-first flood - grow layer by layer from seeds
+    // Water level is FIXED at dam crest (maxWaterLevel)
+    // We flood all contiguous cells below this fixed water level
     const flooded = new Set();
     const queue = new SimpleQueue();
-    const waterLevel = new Float32Array(width * height); // Track water level at each cell
 
     for (let seed of seeds) {
         flooded.add(seed);
         visited[seed] = 1;
-        waterLevel[seed] = data[seed]; // Water level starts at ground elevation
         queue.push(seed);
     }
 
@@ -178,7 +179,6 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         }
 
         const cell = queue.shift();
-        const currentWaterLevel = waterLevel[cell];
 
         // Get neighbors
         const neighbors = getNeighbors(cell, width, height);
@@ -192,15 +192,11 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Skip no-data cells
             if (neighborElev <= CONFIG.noDataValue) continue;
 
-            // Physics-based flooding: water can only reach neighbor if water level is high enough
-            // Water level rises to neighbor's elevation if neighbor is higher than current water
-            const neighborWaterLevel = Math.max(currentWaterLevel, neighborElev);
-
-            // Water can only flood if it stays below the dam crest
-            if (neighborWaterLevel < maxWaterLevel) {
+            // Flood all contiguous cells below the fixed water level (dam crest)
+            // Water level is constant at maxWaterLevel - we're not simulating gradual filling
+            if (neighborElev < maxWaterLevel) {
                 visited[neighbor] = 1;
                 flooded.add(neighbor);
-                waterLevel[neighbor] = neighborWaterLevel;
                 queue.push(neighbor);
             }
         }
