@@ -186,6 +186,12 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
     leftElevations.sort((a, b) => a - b);
     rightElevations.sort((a, b) => a - b);
 
+    // Calculate minimum seed elevation for upstream/downstream detection
+    const minSeedElevation = Math.min(
+        leftElevations[0] || Infinity,
+        rightElevations[0] || Infinity
+    );
+
     debugLog(`Left seeds: ${leftElevations.length} from ${leftElevations[0]?.toFixed(1)}m to ${leftElevations[leftElevations.length - 1]?.toFixed(1)}m`);
     debugLog(`Right seeds: ${rightElevations.length} from ${rightElevations[0]?.toFixed(1)}m to ${rightElevations[rightElevations.length - 1]?.toFixed(1)}m`);
     debugLog(`Starting physics-based flood from ${flooded.size} multi-elevation seeds`);
@@ -211,7 +217,7 @@ function performPhysicsBasedFlood(demData, damCells, crestElevation) {
                 debugLog(`Flooding approaching DEM edge at ${flooded.size} cells - checking for confined bodies`);
 
                 // Try to identify a confined upstream body before requesting expansion
-                const confinedBody = checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells);
+                const confinedBody = checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells, minSeedElevation);
 
                 if (confinedBody) {
                     // Found a confined body - select it as upstream and finish
@@ -944,7 +950,7 @@ function isApproachingEdge(flooded, width, height) {
  * Check if we can identify a confined (upstream) water body without expansion
  * Returns the upstream body if found, null if expansion is needed
  */
-function checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells) {
+function checkForConfinedBody(flooded, visited, width, height, data, crestElevation, damCells, minSeedElevation) {
     // Run connected component analysis
     const bodies = identifyWaterBodies(flooded, visited, width, height, data, crestElevation);
 
@@ -968,10 +974,18 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
 
         debugLog(`Found confined body ${body.id} (${body.size} cells), maxElev=${fillLevel.toFixed(1)}m, crest=${crestElevation.toFixed(1)}m, deficit=${fillDeficit.toFixed(1)}m`);
 
-        // A fully confined body (not touching any edges) IS the upstream reservoir
+        // Check if this is a downstream body (minElev significantly below seed elevations)
+        // Downstream bodies flow away from dam at much lower elevations
+        const elevationDrop = minSeedElevation - body.minElevation;
+        if (elevationDrop > 100) {
+            debugLog(`Confined body is downstream (${elevationDrop.toFixed(1)}m below seed elevation) - rejecting`);
+            return null;  // This is downstream, need expansion to find upstream
+        }
+
+        // A fully confined body (not touching any edges) at appropriate elevation IS the upstream reservoir
         // Accept it immediately regardless of fill level - the deficit just means
         // the upstream valley doesn't reach the dam crest elevation
-        debugLog(`Confined body selected as upstream (fully enclosed)`);
+        debugLog(`Confined body selected as upstream (fully enclosed, appropriate elevation)`);
         return body.cells;
     }
 
@@ -1018,6 +1032,13 @@ function checkForConfinedBody(flooded, visited, width, height, data, crestElevat
         const fillDeficit = crestElevation - fillLevel;
 
         debugLog(`Upstream candidate body ${upstreamCandidate.id} (score=${bestScore.toFixed(1)}), maxElev=${fillLevel.toFixed(1)}m, deficit=${fillDeficit.toFixed(1)}m`);
+
+        // Check if this is a downstream body (minElev significantly below seed elevations)
+        const elevationDrop = minSeedElevation - upstreamCandidate.minElevation;
+        if (elevationDrop > 100) {
+            debugLog(`Upstream candidate is downstream (${elevationDrop.toFixed(1)}m below seed elevation) - rejecting`);
+            return null;  // This is downstream, need expansion to find upstream
+        }
 
         // Accept upstream candidates with large deficits - the valley may not reach dam elevation
         // Only reject if deficit is extreme (>200m), which suggests we haven't found the real valley yet
