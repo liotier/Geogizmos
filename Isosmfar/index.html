@@ -907,34 +907,43 @@
 
         /**
          * Creates a throttled function that only invokes func at most once per every wait milliseconds
+         * Uses leading + trailing edge execution for smooth updates during drag
          * Returns a function with a cancel() method to clear any pending execution
          */
         function throttle(func, wait) {
             let timeoutId = null;
             let lastRan = 0;
+            let lastArgs = null;
 
             const throttled = function(...args) {
                 const context = this;
                 const now = Date.now();
+                const timeSinceLastRun = now - lastRan;
 
-                if (!lastRan) {
-                    // First call - execute immediately
+                // Store args for potential trailing call
+                lastArgs = args;
+
+                if (timeSinceLastRun >= wait) {
+                    // Enough time has passed, execute immediately (leading edge)
                     func.apply(context, args);
                     lastRan = now;
+
+                    // Clear any pending timeout since we just executed
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                        timeoutId = null;
+                    }
                 } else {
-                    // Clear any pending execution
+                    // Not enough time has passed, schedule for later (trailing edge)
                     if (timeoutId) {
                         clearTimeout(timeoutId);
                     }
 
-                    // Schedule next execution
                     timeoutId = setTimeout(() => {
-                        if (now - lastRan >= wait) {
-                            func.apply(context, args);
-                            lastRan = Date.now();
-                        }
+                        func.apply(context, lastArgs);
+                        lastRan = Date.now();
                         timeoutId = null;
-                    }, wait - (now - lastRan));
+                    }, wait - timeSinceLastRun);
                 }
             };
 
@@ -944,7 +953,8 @@
                     clearTimeout(timeoutId);
                     timeoutId = null;
                 }
-                lastRan = 0; // Reset for next drag operation
+                lastArgs = null;
+                // Don't reset lastRan - preserve timing for next call
             };
 
             return throttled;
@@ -1379,11 +1389,11 @@
                     this.draggingCursor = { cursor: idwPowerCursor, slider: idwPowerSlider, type: 'idw-power' };
                     e.preventDefault();
                 });
-                
+
                 // Heat Bandwidth slider
                 const heatBandwidthCursor = document.getElementById('heat-bandwidth-cursor');
                 const heatBandwidthSlider = document.getElementById('heat-bandwidth-slider');
-                
+
                 heatBandwidthCursor.addEventListener('mousedown', (e) => {
                     this.draggingCursor = { cursor: heatBandwidthCursor, slider: heatBandwidthSlider, type: 'heat-bandwidth' };
                     e.preventDefault();
@@ -1622,10 +1632,6 @@
                 const transparencyCursor = document.getElementById('transparency-cursor');
                 const transparencySlider = document.getElementById('transparency-slider');
 
-                // Create throttled versions of updateVisualization and saveState
-                const throttledUpdate = throttle(() => this.updateVisualization(), CONFIG.SLIDER_THROTTLE_MS);
-                const throttledSaveState = throttle(() => this.saveState(), 500);
-
                 distanceCursor.addEventListener('mousedown', (e) => {
                     this.draggingCursor = { cursor: distanceCursor, slider: distanceSlider, type: 'distance' };
                     e.preventDefault();
@@ -1658,13 +1664,11 @@
                             this.maxDistanceKm = Math.round(this.maxDistanceKm);
                         }
                         this.updateSliderValues();
-                        throttledUpdate();
-                        throttledSaveState();
+                        this.updateVisualization();
                     } else if (this.draggingCursor.type === 'transparency') {
                         this.transparency = percent / 100;
                         this.updateSliderValues();
-                        throttledUpdate();
-                        throttledSaveState();
+                        this.updateVisualization();
                     } else if (this.draggingCursor.type === 'coalesce') {
                         // Exponential scale from 0 to max configured
                         if (percent === 0) {
@@ -1682,32 +1686,24 @@
                         }
                         this.updateCoalesceValue();
                         this.debouncedVoronoiUpdate();
-                        throttledSaveState();
                     } else if (this.draggingCursor.type === 'idw-power') {
                         // Linear scale from 1.0 to 5.0
                         this.idwPower = 1.0 + (percent / 100) * 4.0;
                         this.idwPower = Math.round(this.idwPower * 10) / 10;
                         document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
-                        throttledUpdate();
-                        throttledSaveState();
+                        this.updateVisualization();
                     } else if (this.draggingCursor.type === 'heat-bandwidth') {
                         // Linear scale from 0.1 to 1.0 (10% to 100%)
                         this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
                         this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
                         document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
-                        throttledUpdate();
-                        throttledSaveState();
+                        this.updateVisualization();
                     }
                 });
 
                 document.addEventListener('mouseup', () => {
                     if (this.draggingCursor) {
-                        // Cancel any pending throttled updates
-                        throttledUpdate.cancel();
-                        throttledSaveState.cancel();
-
-                        // Perform final update and save immediately
-                        this.updateVisualization();
+                        // Save state when drag ends
                         this.saveState();
                     }
                     this.draggingCursor = null;
