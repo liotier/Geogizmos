@@ -43,17 +43,15 @@ function debugLog(msg) {
  * Accounts for latitude (Mercator projection distortion)
  */
 function calculateCellArea(demData, damCells) {
-    const { width, height, zoom, tileBounds } = demData;
+    const { width, zoom, tileBounds } = demData;
 
     // Get approximate latitude from dam center for area calculation
     const middleDamCell = damCells[Math.floor(damCells.length / 2)];
-    const gridX = middleDamCell % width;
     const gridY = Math.floor(middleDamCell / width);
 
     // Convert grid to tile coordinates
-    const [tileWest, tileNorth] = tileBounds;
+    const [, tileNorth] = tileBounds;
     const tileSize = 256;
-    const tileX = tileWest + (gridX + demData.minX) / tileSize;
     const tileY = tileNorth + (gridY + demData.minY) / tileSize;
 
     // Convert tile to lat/lng
