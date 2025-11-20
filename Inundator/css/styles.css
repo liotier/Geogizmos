@@ -198,6 +198,25 @@ input[type="range"] {
     height: 100%;
 }
 
+#status-message {
+    position: absolute;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(44, 62, 80, 0.95);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 6px;
+    display: none;
+    min-width: 300px;
+    text-align: center;
+    font-size: 14px;
+}
+
+#status-message.active {
+    display: block;
+}
+
 #status {
     position: absolute;
     bottom: 20px;

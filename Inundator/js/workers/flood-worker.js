@@ -374,6 +374,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                     queueCells: queueCells,
                     leftSideCells: Array.from(leftSide),
                     rightSideCells: Array.from(rightSide),
+                    boundaryCells: Array.from(boundaryCells),
                     lastLeftSize: lastLeftSize,
                     lastRightSize: lastRightSize,
                     leftStagnant: leftStagnant,
@@ -575,8 +576,17 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     const damVectorX = damX2 - damX1;
     const damVectorY = damY2 - damY1;
 
-    // Track boundary cells
+    // Restore and remap boundary cells from previous state
     const boundaryCells = new Set();
+    if (resumeState.boundaryCells) {
+        for (let oldCell of resumeState.boundaryCells) {
+            const newCell = remapCellToNewGrid(oldCell, resumeState.oldDemData, demData);
+            if (newCell !== null) {
+                boundaryCells.add(newCell);
+            }
+        }
+        debugLog(`Restored ${boundaryCells.size} boundary cells from previous state`);
+    }
 
     debugLog(`Continuing flood from iteration ${iterations} with ${queue.length} cells in queue`);
 
@@ -652,6 +662,7 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
                     queueCells: queueCells,
                     leftSideCells: Array.from(leftSide),
                     rightSideCells: Array.from(rightSide),
+                    boundaryCells: Array.from(boundaryCells),
                     lastLeftSize: lastLeftSize,
                     lastRightSize: lastRightSize,
                     leftStagnant: leftStagnant,

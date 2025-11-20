@@ -432,7 +432,7 @@ export class InundatorApp {
         }
 
         this.currentBufferKm += expansionKm;
-        this.showMessage(`Lake extending ${directions.join('/')} - expanding terrain data...`, 'info');
+        this.showStatusMessage(`Lake extending ${directions.join('/')}`);
 
         // Re-fetch DEM with expanded bounds
         try {
@@ -582,6 +582,17 @@ export class InundatorApp {
         setTimeout(() => {
             document.getElementById('status').classList.remove('active');
         }, 500);
+    }
+
+    showStatusMessage(text) {
+        const statusMessage = document.getElementById('status-message');
+        statusMessage.textContent = text;
+        statusMessage.classList.add('active');
+
+        // Auto-hide after 10 seconds (twice the original 5 second duration)
+        setTimeout(() => {
+            statusMessage.classList.remove('active');
+        }, 10000);
     }
 
     updateProgress(value) {
