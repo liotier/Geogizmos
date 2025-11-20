@@ -140,6 +140,8 @@ function remapCellSet(oldCells, oldDemData, newDemData) {
  * Grows layer by layer, one cell at a time from all sides equally
  */
 class SimpleQueue {
+    static COMPACTION_THRESHOLD = 10000;
+
     items = [];
     head = 0;
 
@@ -157,7 +159,7 @@ class SimpleQueue {
         this.head++;
 
         // Periodically compact the array to avoid memory bloat
-        if (this.head > 10000) {
+        if (this.head > SimpleQueue.COMPACTION_THRESHOLD) {
             this.items = this.items.slice(this.head);
             this.head = 0;
         }

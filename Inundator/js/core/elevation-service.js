@@ -4,6 +4,7 @@
  */
 
 import { CONFIG } from '../config.js';
+import { PerformanceTimer } from '../utils/performance-timer.js';
 
 /**
  * IndexedDB cache for DEM tiles
@@ -80,7 +81,80 @@ export class ElevationService {
     dbCache = new TileDBCache(); // Persistent IndexedDB cache
 
     /**
+     * Decode elevation from Terrarium RGB format
+     * @param {number} r - Red channel value (0-255)
+     * @param {number} g - Green channel value (0-255)
+     * @param {number} b - Blue channel value (0-255)
+     * @returns {number} Elevation in meters
+     */
+    static decodeTerrarium(r, g, b) {
+        // Terrarium format: elevation = (R * 256 + G + B / 256) - 32768
+        return (r * 256 + g + b / 256) - 32768;
+    }
+
+    /**
+     * Convert longitude to Web Mercator tile X coordinate
+     * @param {number} lng - Longitude in degrees
+     * @param {number} zoom - Zoom level
+     * @returns {number} Tile X coordinate
+     */
+    static lngToTileX(lng, zoom) {
+        const n = Math.pow(2, zoom);
+        return Math.floor((lng + 180) / 360 * n);
+    }
+
+    /**
+     * Convert latitude to Web Mercator tile Y coordinate
+     * @param {number} lat - Latitude in degrees
+     * @param {number} zoom - Zoom level
+     * @returns {number} Tile Y coordinate
+     */
+    static latToTileY(lat, zoom) {
+        const n = Math.pow(2, zoom);
+        const latRad = lat * Math.PI / 180;
+        return Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+    }
+
+    /**
+     * Fetch tile with retry logic using exponential backoff
+     * @param {string} url - Tile URL to fetch
+     * @param {number} maxRetries - Maximum number of retry attempts
+     * @param {number} baseDelay - Base delay in milliseconds
+     * @returns {Promise<Blob>} Tile image blob
+     * @throws {Error} If all retries fail
+     */
+    async fetchTileWithRetry(url, maxRetries = 3, baseDelay = 1000) {
+        let lastError;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                return await response.blob();
+            } catch (error) {
+                lastError = error;
+
+                if (attempt < maxRetries - 1) {
+                    const delay = baseDelay * Math.pow(2, attempt);
+                    console.log(`Retry ${attempt + 1}/${maxRetries} for ${url} after ${delay}ms`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        throw lastError;
+    }
+
+    /**
      * Get elevation at a single point
+     * @param {number} lng - Longitude in degrees (-180 to 180)
+     * @param {number} lat - Latitude in degrees (-90 to 90)
+     * @returns {Promise<number>} Elevation in meters, or CONFIG.dem.noDataValue if unavailable
+     * @throws {Error} If tile fetching fails
      */
     async getElevationAtPoint(lng, lat) {
         const zoom = CONFIG.dem.queryZoom;
@@ -126,18 +200,29 @@ export class ElevationService {
         const imageData = this.tileCache.get(tileKey);
         const idx = (py * tileSize + px) * 4;
 
+        // Validate pixel coordinates are within tile bounds
+        if (px < 0 || px >= tileSize || py < 0 || py >= tileSize) {
+            console.warn(`Pixel coordinates out of tile bounds: (${px}, ${py}) in tile ${tileKey}`);
+            return CONFIG.dem.noDataValue;
+        }
+
+        // Validate array access is within imageData bounds
+        if (idx < 0 || idx + 2 >= imageData.data.length) {
+            console.warn(`Image data index out of bounds: ${idx} (max: ${imageData.data.length}) for tile ${tileKey}`);
+            return CONFIG.dem.noDataValue;
+        }
+
         const r = imageData.data[idx];
         const g = imageData.data[idx + 1];
         const b = imageData.data[idx + 2];
 
-        // Decode Terrarium format: elevation = (R * 256 + G + B / 256) - 32768
-        const elevation = (r * 256 + g + b / 256) - 32768;
-
-        return elevation;
+        return ElevationService.decodeTerrarium(r, g, b);
     }
 
     /**
      * Fetch elevations for multiple points
+     * @param {Array<[number, number]>} points - Array of [lng, lat] coordinate pairs
+     * @returns {Promise<Array<number>>} Array of elevations in meters
      */
     async fetchElevations(points) {
         const elevations = [];
@@ -153,12 +238,40 @@ export class ElevationService {
 
     /**
      * Fetch DEM data for a geographic bounding box
-     * @param {Array} bounds - [west, south, east, north]
-     * @param {Function} progressCallback - Progress callback
-     * @param {Array} originTileBounds - Original tile bounds [tileWest, tileNorth, tileEast, tileSouth] to use as grid origin (0,0)
+     * @param {[number, number, number, number]} bounds - Geographic bounds [west, south, east, north] in degrees
+     * @param {((progress: number, status: string) => void)|null} progressCallback - Optional progress callback (0-1, status message)
+     * @param {[number, number, number, number]|null} originTileBounds - Original tile bounds [tileWest, tileNorth, tileEast, tileSouth] for grid origin
+     * @returns {Promise<{data: Float32Array, width: number, height: number, zoom: number, tileBounds: number[], minX: number, minY: number}>} DEM grid data
+     * @throws {Error} If bounds are invalid or area is too large
      */
     async fetchDEMData(bounds, progressCallback = null, originTileBounds = null) {
+        // Validate bounds parameter
+        if (!Array.isArray(bounds) || bounds.length !== 4) {
+            throw new Error('Invalid bounds: expected array [west, south, east, north]');
+        }
+
         const [west, south, east, north] = bounds;
+
+        // Validate bounds values
+        if (!Number.isFinite(west) || !Number.isFinite(south) || !Number.isFinite(east) || !Number.isFinite(north)) {
+            throw new Error(`Invalid bounds: all values must be finite numbers, got [${west}, ${south}, ${east}, ${north}]`);
+        }
+
+        if (west >= east) {
+            throw new Error(`Invalid bounds: west (${west}) must be less than east (${east})`);
+        }
+
+        if (south >= north) {
+            throw new Error(`Invalid bounds: south (${south}) must be less than north (${north})`);
+        }
+
+        if (Math.abs(west) > 180 || Math.abs(east) > 180) {
+            throw new Error(`Longitude out of range [-180, 180]: west=${west}, east=${east}`);
+        }
+
+        if (Math.abs(south) > 90 || Math.abs(north) > 90) {
+            throw new Error(`Latitude out of range [-90, 90]: south=${south}, north=${north}`);
+        }
 
         // Determine zoom level based on area
         const area = (east - west) * (north - south) * 111 * 111; // Rough km²
@@ -166,14 +279,11 @@ export class ElevationService {
             ? CONFIG.dem.adaptiveZoom.smallAreaZoom
             : CONFIG.dem.adaptiveZoom.largeAreaZoom;
 
-        // Calculate tile bounds
-        const n = Math.pow(2, zoom);
-        const tileWest = Math.floor((west + 180) / 360 * n);
-        const tileEast = Math.floor((east + 180) / 360 * n);
-        const tileNorth = Math.floor((1 - Math.log(Math.tan(north * Math.PI / 180) +
-            1 / Math.cos(north * Math.PI / 180)) / Math.PI) / 2 * n);
-        const tileSouth = Math.floor((1 - Math.log(Math.tan(south * Math.PI / 180) +
-            1 / Math.cos(south * Math.PI / 180)) / Math.PI) / 2 * n);
+        // Calculate tile bounds using Web Mercator projection
+        const tileWest = ElevationService.lngToTileX(west, zoom);
+        const tileEast = ElevationService.lngToTileX(east, zoom);
+        const tileNorth = ElevationService.latToTileY(north, zoom);
+        const tileSouth = ElevationService.latToTileY(south, zoom);
 
         // Limit tile count
         const tilesX = Math.max(1, Math.min(tileEast - tileWest + 1, CONFIG.dem.maxTilesX));
@@ -211,6 +321,8 @@ export class ElevationService {
 
         console.log(`Fetching ${totalTiles} tiles in parallel (${tilesX}x${tilesY})`);
 
+        PerformanceTimer.start('DEM tile fetch');
+
         // Fetch all tiles in parallel
         const tilePromises = tilesToFetch.map(async ({ tx, ty }) => {
             const tileKey = `${zoom}/${tx}/${ty}`;
@@ -221,10 +333,9 @@ export class ElevationService {
                 let fromCache = !!imageData;
 
                 if (!imageData) {
-                    // Fetch from network
+                    // Fetch from network with retry logic
                     const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
-                    const response = await fetch(url);
-                    const blob = await response.blob();
+                    const blob = await this.fetchTileWithRetry(url);
                     imageData = await this.loadImageData(blob);
 
                     // Store in IndexedDB cache for future use
@@ -233,7 +344,16 @@ export class ElevationService {
 
                 return { tx, ty, imageData, error: null, fromCache };
             } catch (error) {
-                console.warn(`Failed to load tile ${tileKey}:`, error);
+                const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
+                console.warn(`Failed to load tile ${tileKey}:`, {
+                    message: error.message,
+                    url,
+                    zoom,
+                    tileX: tx,
+                    tileY: ty,
+                    timestamp: new Date().toISOString(),
+                    errorType: error.name
+                });
                 return { tx, ty, imageData: null, error, fromCache: false };
             }
         });
@@ -252,6 +372,8 @@ export class ElevationService {
                 progressCallback(loadedTiles / totalTiles * 0.5);
             }
         }
+
+        PerformanceTimer.end('DEM tile fetch');
 
         // Report cache statistics
         const cachedCount = tileResults.filter(r => r.fromCache).length;
@@ -274,7 +396,7 @@ export class ElevationService {
                         const g = imageData.data[idx + 1];
                         const b = imageData.data[idx + 2];
 
-                        const elevation = (r * 256 + g + b / 256) - 32768;
+                        const elevation = ElevationService.decodeTerrarium(r, g, b);
 
                         const destIdx = (offsetY + y) * width + (offsetX + x);
                         elevationData[destIdx] = elevation;

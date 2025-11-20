@@ -111,11 +111,11 @@ export const CONFIG = {
 
     // Map Configuration
     map: {
-        // Default center (Nkondjock, Cameroon)
-        defaultCenter: [10.564, 4.777],
+        // Default center (Mont Blanc / Monte Bianco, France/Italy border)
+        defaultCenter: [6.8651, 45.8326],
 
         // Default zoom
-        defaultZoom: 12,
+        defaultZoom: 13,
 
         // Max zoom
         maxZoom: 18,
