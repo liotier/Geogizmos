@@ -1087,6 +1087,31 @@ function identifyWaterBodies(flooded, visited, width, height, data, crestElevati
 
 
 /**
+ * Check if left and right sides have merged (become adjacent)
+ * This indicates water is flowing around both ends of the dam
+ */
+function checkSidesMerged(leftSide, rightSide, width, height) {
+    // Sample check: look for cells where left and right sides are neighbors
+    // We don't need to check every cell - a sample is sufficient for detection
+    const sampleSize = Math.min(1000, leftSide.size);
+    let checked = 0;
+
+    for (let leftCell of leftSide) {
+        if (checked++ > sampleSize) break;
+
+        const neighbors = getNeighbors(leftCell, width, height);
+        for (let neighbor of neighbors) {
+            if (rightSide.has(neighbor)) {
+                // Found adjacent cells from opposite sides - they've merged!
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Get 4-connected neighbors
  */
 function getNeighbors(cell, width, height) {
