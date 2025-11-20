@@ -351,6 +351,20 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
         if (iterations % CONFIG.layerCheckInterval === 0) {
+            // Check if left and right sides have merged (water flowing around both dam ends)
+            const merged = checkSidesMerged(leftSide, rightSide, width, height);
+            if (merged) {
+                debugLog(`ERROR: Left and right sides merged - water flowing around both dam ends!`);
+                self.postMessage({
+                    error: 'Invalid dam placement: Water is flowing around both ends of the dam, making it ineffective. ' +
+                           'The upstream and downstream sides have merged. Solutions: ' +
+                           '(1) Place the dam in a narrower section of the valley, or ' +
+                           '(2) Extend the dam further to reach solid valley walls on both sides, or ' +
+                           '(3) Raise the dam crest elevation to reduce the flooded area.'
+                });
+                return null;
+            }
+
             const leftGrowth = leftSide.size - lastLeftSize;
             const rightGrowth = rightSide.size - lastRightSize;
             const leftGrowing = leftGrowth > 0;
@@ -643,6 +657,20 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
         if (iterations % CONFIG.layerCheckInterval === 0) {
+            // Check if left and right sides have merged (water flowing around both dam ends)
+            const merged = checkSidesMerged(leftSide, rightSide, width, height);
+            if (merged) {
+                debugLog(`ERROR: Left and right sides merged - water flowing around both dam ends!`);
+                self.postMessage({
+                    error: 'Invalid dam placement: Water is flowing around both ends of the dam, making it ineffective. ' +
+                           'The upstream and downstream sides have merged. Solutions: ' +
+                           '(1) Place the dam in a narrower section of the valley, or ' +
+                           '(2) Extend the dam further to reach solid valley walls on both sides, or ' +
+                           '(3) Raise the dam crest elevation to reduce the flooded area.'
+                });
+                return null;
+            }
+
             const leftGrowth = leftSide.size - lastLeftSize;
             const rightGrowth = rightSide.size - lastRightSize;
             const leftGrowing = leftGrowth > 0;
