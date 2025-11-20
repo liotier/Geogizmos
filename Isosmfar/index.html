@@ -1288,7 +1288,7 @@
                     document.getElementById('area').value = urlParams.area;
                 }
                 if (urlParams.query) {
-                    document.getElementById('feature-query').value = urlParams.query;
+                    document.getElementById('query').value = urlParams.query;
                 }
             }
 
@@ -1334,7 +1334,7 @@
 
                 // Add area and query if present
                 const area = document.getElementById('area').value;
-                const query = document.getElementById('feature-query').value;
+                const query = document.getElementById('query').value;
                 if (area) state.area = area;
                 if (query) state.query = query;
 
