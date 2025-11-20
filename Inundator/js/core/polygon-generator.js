@@ -8,18 +8,30 @@ import { CONFIG } from '../config.js';
 export class PolygonGenerator {
     /**
      * Create flood polygon from flooded cells
+     * @param {Array} floodedCells - All flooded cells (used as fallback)
+     * @param {Object} demData - DEM grid information
+     * @param {Set} boundaryCells - Boundary cells only (optional, for performance)
      */
-    static createFloodPolygon(floodedCells, demData) {
+    static createFloodPolygon(floodedCells, demData, boundaryCells = null) {
         if (!floodedCells || floodedCells.length === 0) return null;
 
         const { width, height, zoom, tileBounds, minX, minY } = demData;
 
-        console.log(`Creating flood polygon from ${floodedCells.length} cells, grid size: ${width}x${height}`);
+        // Use boundary cells if available (massive performance improvement)
+        const cellsToProcess = boundaryCells || floodedCells;
+        const cellCount = boundaryCells ? boundaryCells.size : floodedCells.length;
+
+        console.log(`Creating flood polygon from ${cellCount} ${boundaryCells ? 'boundary' : 'flooded'} cells, grid size: ${width}x${height}`);
+
+        if (boundaryCells && floodedCells.length > 0) {
+            const reduction = ((1 - cellCount / floodedCells.length) * 100).toFixed(1);
+            console.log(`Boundary optimization: processing ${reduction}% fewer cells (${cellCount} vs ${floodedCells.length})`);
+        }
 
         // Create binary grid for marching squares
         const values = new Array(width * height).fill(0);
 
-        for (const cell of floodedCells) {
+        for (const cell of cellsToProcess) {
             if (cell >= 0 && cell < width * height) {
                 values[cell] = 1;
             }

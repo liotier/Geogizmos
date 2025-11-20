@@ -93,11 +93,11 @@ export class InundatorApp {
                     this.showStatus(e.data.status);
                 }
             } else if (e.data.incrementalUpdate) {
-                this.updateIncrementalVisualization(e.data.flooded, e.data.cellCount);
+                this.updateIncrementalVisualization(e.data.flooded, e.data.cellCount, e.data.boundary);
             } else if (e.data.needMoreDEM) {
                 this.handleDEMExpansionRequest(e.data);
             } else if (e.data.flooded) {
-                this.onFloodFillComplete(e.data.flooded, e.data.barriers);
+                this.onFloodFillComplete(e.data.flooded, e.data.barriers, e.data.boundary);
             }
         });
     }
@@ -454,22 +454,25 @@ export class InundatorApp {
         }
     }
 
-    updateIncrementalVisualization(floodedCells, cellCount) {
+    updateIncrementalVisualization(floodedCells, cellCount, boundaryCells) {
         // Update status to show progress
         this.showStatus(`Flooding: ${cellCount.toLocaleString()} cells...`);
 
-        // Create and display polygon
-        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
+        // Create and display polygon (use boundary cells for performance)
+        const boundary = boundaryCells ? new Set(boundaryCells) : null;
+        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData, boundary);
 
         if (polygon) {
             this.visualization.visualizeFlood(polygon);
         }
     }
 
-    onFloodFillComplete(floodedCells, barrierCells) {
+    onFloodFillComplete(floodedCells, barrierCells, boundaryCells) {
         this.showStatus('Creating flood polygon...');
 
-        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
+        // Use boundary cells for optimal performance
+        const boundary = boundaryCells ? new Set(boundaryCells) : null;
+        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData, boundary);
 
         if (polygon) {
             this.floodPolygon = polygon;
