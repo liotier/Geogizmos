@@ -9,7 +9,7 @@
  * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
  */
 
-const WORKER_VERSION = "2024.11.19.15";
+const WORKER_VERSION = "2024.11.19.16";
 
 // Worker configuration
 const CONFIG = {
@@ -248,23 +248,43 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
         if (iterations % CONFIG.layerCheckInterval === 0) {
-            const leftGrowing = leftSide.size > lastLeftSize;
-            const rightGrowing = rightSide.size > lastRightSize;
+            const leftGrowth = leftSide.size - lastLeftSize;
+            const rightGrowth = rightSide.size - lastRightSize;
+            const leftGrowing = leftGrowth > 0;
+            const rightGrowing = rightGrowth > 0;
 
-            if (!leftGrowing) leftStagnant++;
+            // Detect stagnation: confined valley vs runaway downstream
+            // A side is effectively stagnant (confined) if:
+            // 1. It's not growing at all, OR
+            // 2. It's growing much slower AND other side is much larger (confined vs spreading)
+            const leftGrowthRate = lastLeftSize > 0 ? leftGrowth / lastLeftSize : 0;
+            const rightGrowthRate = lastRightSize > 0 ? rightGrowth / lastRightSize : 0;
+
+            // If one side is 2x larger AND growing 3x faster (in absolute cells), it's running away
+            const leftEffectivelyStagnant = !leftGrowing ||
+                (rightGrowing && rightGrowth > leftGrowth * 3 && rightSide.size > leftSide.size * 2);
+            const rightEffectivelyStagnant = !rightGrowing ||
+                (leftGrowing && leftGrowth > rightGrowth * 3 && leftSide.size > rightSide.size * 2);
+
+            if (leftEffectivelyStagnant) leftStagnant++;
             else leftStagnant = 0;
 
-            if (!rightGrowing) rightStagnant++;
+            if (rightEffectivelyStagnant) rightStagnant++;
             else rightStagnant = 0;
+
+            // Debug growth rates
+            if (debugMessageCount < CONFIG.maxDebugMessages && iterations % (CONFIG.layerCheckInterval * 10) === 0) {
+                debugLog(`Growth check: left +${leftGrowth} (${(leftGrowthRate*100).toFixed(2)}%), right +${rightGrowth} (${(rightGrowthRate*100).toFixed(2)}%), left stagnant: ${leftStagnant}, right stagnant: ${rightStagnant}`);
+            }
 
             // If one side is stagnant (confined) and other is still growing (runaway),
             // select the stagnant side as upstream reservoir and stop
             if (leftStagnant >= 3 && rightGrowing) {
-                debugLog(`Left side stagnant at ${leftSide.size} cells, right growing to ${rightSide.size} - selecting left as upstream`);
+                debugLog(`Left side stagnant (growth: ${leftGrowth}, ${(leftGrowthRate*100).toFixed(1)}%) vs right growing (${rightGrowth}, ${(rightGrowthRate*100).toFixed(1)}%) - selecting left as upstream`);
                 return { flooded: leftSide, barriers };
             }
             if (rightStagnant >= 3 && leftGrowing) {
-                debugLog(`Right side stagnant at ${rightSide.size} cells, left growing to ${leftSide.size} - selecting right as upstream`);
+                debugLog(`Right side stagnant (growth: ${rightGrowth}, ${(rightGrowthRate*100).toFixed(1)}%) vs left growing (${leftGrowth}, ${(leftGrowthRate*100).toFixed(1)}%) - selecting right as upstream`);
                 return { flooded: rightSide, barriers };
             }
 
