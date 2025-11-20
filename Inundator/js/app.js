@@ -197,7 +197,7 @@ export class InundatorApp {
         document.getElementById('location-search').value = location.display_name.split(',')[0];
         this.hideLocationDropdown();
 
-        this.mapManager.flyTo(parseFloat(location.lon), parseFloat(location.lat));
+        this.mapManager.flyTo(Number.parseFloat(location.lon), Number.parseFloat(location.lat));
     }
 
     // Dam drawing

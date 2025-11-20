@@ -321,8 +321,6 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     let lastRightSize = 0;
     let leftStagnant = 0;
     let rightStagnant = 0;
-    let lastVisualizationUpdate = 0;
-    const visualizationUpdateInterval = 10000; // Update visualization every 10k cells
 
     while (queue.length > 0 && iterations < CONFIG.maxIterations) {
         iterations++;
