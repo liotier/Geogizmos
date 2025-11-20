@@ -147,7 +147,7 @@ self.addEventListener('message', function (e) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
                     barriers: Array.from(result.barriers),
-                    boundary: Array.from(result.boundary)
+                    boundary: result.boundary ? Array.from(result.boundary) : []
                 });
             }
         } else {
@@ -158,7 +158,7 @@ self.addEventListener('message', function (e) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
                     barriers: Array.from(result.barriers),
-                    boundary: Array.from(result.boundary)
+                    boundary: result.boundary ? Array.from(result.boundary) : []
                 });
             }
         }
@@ -300,10 +300,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
         if (iterations % CONFIG.progressUpdateInterval === 0) {
             const totalCells = leftSide.size + rightSide.size;
-            debugLog(`Iteration ${iterations}, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
+            debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
             self.postMessage({
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
-                status: `Flooding: ${totalCells.toLocaleString()} cells (${iterations.toLocaleString()} iterations)`
+                status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
         }
 
@@ -586,10 +586,10 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
         if (iterations % CONFIG.progressUpdateInterval === 0) {
             const totalCells = leftSide.size + rightSide.size;
-            debugLog(`Iteration ${iterations}, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
+            debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
             self.postMessage({
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
-                status: `Flooding: ${totalCells.toLocaleString()} cells (${iterations.toLocaleString()} iterations)`
+                status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
         }
 
