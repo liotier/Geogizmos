@@ -1,6 +1,10 @@
 # Inundator
 
-Interactive reservoir inundation visualization tool. Draw a dam on a map and simulate the resulting reservoir using Digital Elevation Model (DEM) data.
+Interactive reservoir inundation simulation visualization tool. Draw a dam on a map and simulate the resulting reservoir using Digital Elevation Model (DEM) data.
+
+The whole Tarentaise valley flooded in five minutes ? Sure !
+
+![screenshot](Screenshot_2025-11-20_Inundator_Interactive_Reservoir_Inundation_Simulator.png)
 
 ## Features
 
