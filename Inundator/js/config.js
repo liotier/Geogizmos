@@ -45,6 +45,9 @@ export const CONFIG = {
         // Maximum iterations for flood-fill (increased 10x for massive valley lakes)
         maxIterations: 20000000,
 
+        // Maximum reasonable reservoir area (km²) - safety limit
+        maxReservoirAreaKm2: 500,
+
         // Seed search radius (cells from dam)
         seedSearchRadius: 2,
 

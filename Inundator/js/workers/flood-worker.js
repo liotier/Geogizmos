@@ -21,7 +21,9 @@ const CONFIG = {
     noDataValue: -9999,
     safetyMargin: 1.0,        // Meters below dam crest to stop flooding
     minReservoirSize: 10,     // Minimum cells to be considered valid reservoir
-    layerCheckInterval: 5000  // Check for stagnation every N cells
+    layerCheckInterval: 5000,  // Check for stagnation every N cells
+    maxReservoirAreaKm2: 500,  // Maximum reasonable reservoir area (safety limit)
+    areaSizeCheckInterval: 50000  // Check reservoir size every N iterations
 };
 
 // Cached dam geometry - calculated ONCE at start, reused on DEM expansions
@@ -34,6 +36,39 @@ function debugLog(msg) {
         debugMessageCount++;
         self.postMessage({ debug: msg });
     }
+}
+
+/**
+ * Calculate cell area in m² for a given DEM grid
+ * Accounts for latitude (Mercator projection distortion)
+ */
+function calculateCellArea(demData, damCells) {
+    const { width, zoom, tileBounds } = demData;
+
+    // Get approximate latitude from dam center for area calculation
+    const middleDamCell = damCells[Math.floor(damCells.length / 2)];
+    const gridY = Math.floor(middleDamCell / width);
+
+    // Convert grid to tile coordinates
+    const [, tileNorth] = tileBounds;
+    const tileSize = 256;
+    const tileY = tileNorth + (gridY + demData.minY) / tileSize;
+
+    // Convert tile to lat/lng
+    const n = Math.pow(2, zoom);
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
+
+    // Calculate cell size in meters at this latitude
+    // Earth circumference at equator: 40,075,017 m
+    const earthCircumference = 40075017;
+    const metersPerTile = earthCircumference / n;
+    const metersPerPixel = metersPerTile / tileSize;
+
+    // Adjust for latitude (Mercator distortion)
+    const latRadians = lat * Math.PI / 180;
+    const adjustedMetersPerPixel = metersPerPixel * Math.cos(latRadians);
+
+    return adjustedMetersPerPixel * adjustedMetersPerPixel; // m² per cell
 }
 
 /**
@@ -305,6 +340,21 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
+
+            // Check if reservoir area exceeds reasonable limits (safety check for flat terrain)
+            const cellAreaM2 = calculateCellArea(demData, damCells);
+            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
+            if (currentAreaKm2 > CONFIG.maxReservoirAreaKm2) {
+                debugLog(`Reservoir area (${currentAreaKm2.toFixed(1)} km²) exceeds maximum (${CONFIG.maxReservoirAreaKm2} km²) - stopping`);
+                self.postMessage({
+                    error: `Computation stopped: Reservoir area reached ${currentAreaKm2.toFixed(1)} km² (limit: ${CONFIG.maxReservoirAreaKm2} km²). ` +
+                           `This may indicate very flat terrain, a large valley, or incorrect dam placement. ` +
+                           `Solutions: (1) Raise the dam crest elevation to reduce flooded area, ` +
+                           `(2) Place the dam in a narrower section of the valley, or ` +
+                           `(3) If this is a genuinely large valley, increase maxReservoirAreaKm2 in config.js.`
+                });
+                return null;
+            }
         }
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
@@ -471,24 +521,29 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     debugLog(`Incremental flooding complete - left: ${leftSide.size}, right: ${rightSide.size}`);
 
-    // Select the smaller side as upstream (confined valley)
-    // The larger side is downstream (spreading toward ocean)
-    const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
-    const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
+    // Determine if this is a V-shaped valley (both sides are upstream) or one-sided valley
+    const sizeRatio = Math.max(leftSide.size, rightSide.size) / Math.min(leftSide.size, rightSide.size);
+    const isVShaped = sizeRatio < 4; // Both sides within 4x of each other = V-shaped valley
 
-    // Select boundary cells from the upstream side only
-    const upstreamBoundary = new Set();
-    for (let cell of boundaryCells) {
-        if (upstream.has(cell)) {
-            upstreamBoundary.add(cell);
-        }
+    let flooded, selectedName;
+    if (isVShaped) {
+        // V-shaped valley: both arms are legitimate upstream - keep both
+        flooded = new Set([...leftSide, ...rightSide]);
+        selectedName = "both sides (V-shaped valley)";
+        debugLog(`V-shaped valley detected (size ratio ${sizeRatio.toFixed(1)}x) - keeping both sides`);
+    } else {
+        // One side clearly dominant: select smaller as upstream, reject larger as downstream
+        flooded = leftSide.size < rightSide.size ? leftSide : rightSide;
+        const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
+        selectedName = leftSide.size < rightSide.size ? "left (confined)" : "right (confined)";
+        debugLog(`One-sided valley (ratio ${sizeRatio.toFixed(1)}x) - selecting ${selectedName}`);
+        debugLog(`Rejected ${downstream.size} cells from larger side`);
     }
 
-    debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
-    debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
-    debugLog(`Boundary cells: ${upstreamBoundary.size} (${((upstreamBoundary.size / upstream.size) * 100).toFixed(1)}% of total)`);
+    debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
+    debugLog(`Boundary cells: ${boundaryCells.size} (${((boundaryCells.size / flooded.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded: upstream, barriers, boundary: upstreamBoundary };
+    return { flooded, barriers, boundary: boundaryCells };
 }
 
 /**
@@ -601,6 +656,21 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
+
+            // Check if reservoir area exceeds reasonable limits (safety check for flat terrain)
+            const cellAreaM2 = calculateCellArea(demData, damCells);
+            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
+            if (currentAreaKm2 > CONFIG.maxReservoirAreaKm2) {
+                debugLog(`Reservoir area (${currentAreaKm2.toFixed(1)} km²) exceeds maximum (${CONFIG.maxReservoirAreaKm2} km²) - stopping`);
+                self.postMessage({
+                    error: `Computation stopped: Reservoir area reached ${currentAreaKm2.toFixed(1)} km² (limit: ${CONFIG.maxReservoirAreaKm2} km²). ` +
+                           `This may indicate very flat terrain, a large valley, or incorrect dam placement. ` +
+                           `Solutions: (1) Raise the dam crest elevation to reduce flooded area, ` +
+                           `(2) Place the dam in a narrower section of the valley, or ` +
+                           `(3) If this is a genuinely large valley, increase maxReservoirAreaKm2 in config.js.`
+                });
+                return null;
+            }
         }
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
@@ -742,23 +812,29 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
     debugLog(`Resumed flooding complete - left: ${leftSide.size}, right: ${rightSide.size}`);
 
-    // Select the smaller side as upstream (confined valley)
-    const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
-    const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
+    // Determine if this is a V-shaped valley (both sides are upstream) or one-sided valley
+    const sizeRatio = Math.max(leftSide.size, rightSide.size) / Math.min(leftSide.size, rightSide.size);
+    const isVShaped = sizeRatio < 4; // Both sides within 4x of each other = V-shaped valley
 
-    // Select boundary cells from the upstream side only
-    const upstreamBoundary = new Set();
-    for (let cell of boundaryCells) {
-        if (upstream.has(cell)) {
-            upstreamBoundary.add(cell);
-        }
+    let flooded, selectedName;
+    if (isVShaped) {
+        // V-shaped valley: both arms are legitimate upstream - keep both
+        flooded = new Set([...leftSide, ...rightSide]);
+        selectedName = "both sides (V-shaped valley)";
+        debugLog(`V-shaped valley detected (size ratio ${sizeRatio.toFixed(1)}x) - keeping both sides`);
+    } else {
+        // One side clearly dominant: select smaller as upstream, reject larger as downstream
+        flooded = leftSide.size < rightSide.size ? leftSide : rightSide;
+        const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
+        selectedName = leftSide.size < rightSide.size ? "left (confined)" : "right (confined)";
+        debugLog(`One-sided valley (ratio ${sizeRatio.toFixed(1)}x) - selecting ${selectedName}`);
+        debugLog(`Rejected ${downstream.size} cells from larger side`);
     }
 
-    debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
-    debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
-    debugLog(`Boundary cells: ${upstreamBoundary.size} (${((upstreamBoundary.size / upstream.size) * 100).toFixed(1)}% of total)`);
+    debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
+    debugLog(`Boundary cells: ${boundaryCells.size} (${((boundaryCells.size / flooded.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded: upstream, barriers, boundary: upstreamBoundary };
+    return { flooded, barriers, boundary: boundaryCells };
 }
 
 /**
