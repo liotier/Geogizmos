@@ -181,8 +181,7 @@ self.addEventListener('message', function (e) {
             if (result !== null) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
-                    barriers: Array.from(result.barriers),
-                    boundary: result.boundary ? Array.from(result.boundary) : []
+                    barriers: Array.from(result.barriers)
                 });
             }
         } else {
@@ -192,8 +191,7 @@ self.addEventListener('message', function (e) {
             if (result !== null) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
-                    barriers: Array.from(result.barriers),
-                    boundary: result.boundary ? Array.from(result.boundary) : []
+                    barriers: Array.from(result.barriers)
                 });
             }
         }
@@ -299,10 +297,6 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     const leftSide = new Set();
     const rightSide = new Set();
     const queue = new SimpleQueue();
-
-    // Track boundary cells (cells adjacent to non-flooded cells)
-    // This dramatically speeds up polygon generation (only process boundary instead of all cells)
-    const boundaryCells = new Set();
 
     // Add seeds and partition them
     for (let seed of seeds) {
@@ -424,7 +418,6 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                     queueCells: queueCells,
                     leftSideCells: Array.from(leftSide),
                     rightSideCells: Array.from(rightSide),
-                    boundaryCells: Array.from(boundaryCells),
                     lastLeftSize: lastLeftSize,
                     lastRightSize: lastRightSize,
                     leftStagnant: leftStagnant,
@@ -499,16 +492,6 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                 }
 
                 queue.push(neighbor);
-
-                // Check if this cell is on the boundary (has at least one non-flooded neighbor)
-                const neighborNeighbors = getNeighbors(neighbor, width, height);
-                for (let nn of neighborNeighbors) {
-                    if (visited[nn] === 0 && data[nn] >= maxWaterLevel) {
-                        // This cell borders a non-flooded cell - it's on the boundary
-                        boundaryCells.add(neighbor);
-                        break;
-                    }
-                }
             }
         }
     }
@@ -542,17 +525,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
 
-    // Filter boundary cells to only include those in the selected flooded region
-    const filteredBoundary = new Set();
-    for (let cell of boundaryCells) {
-        if (flooded.has(cell)) {
-            filteredBoundary.add(cell);
-        }
-    }
-
-    debugLog(`Boundary cells: ${filteredBoundary.size} (${((filteredBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
-
-    return { flooded, barriers, boundary: filteredBoundary };
+    return { flooded, barriers };
 }
 
 /**
@@ -639,18 +612,6 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     const damY2 = Math.floor(lastDamCell / width);
     const damVectorX = damX2 - damX1;
     const damVectorY = damY2 - damY1;
-
-    // Restore and remap boundary cells from previous state
-    const boundaryCells = new Set();
-    if (resumeState.boundaryCells) {
-        for (let oldCell of resumeState.boundaryCells) {
-            const newCell = remapCellToNewGrid(oldCell, resumeState.oldDemData, demData);
-            if (newCell !== null) {
-                boundaryCells.add(newCell);
-            }
-        }
-        debugLog(`Restored ${boundaryCells.size} boundary cells from previous state`);
-    }
 
     debugLog(`Continuing flood from iteration ${iterations} with ${queue.length} cells in queue`);
 
@@ -741,7 +702,6 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
                     queueCells: queueCells,
                     leftSideCells: Array.from(leftSide),
                     rightSideCells: Array.from(rightSide),
-                    boundaryCells: Array.from(boundaryCells),
                     lastLeftSize: lastLeftSize,
                     lastRightSize: lastRightSize,
                     leftStagnant: leftStagnant,
@@ -800,15 +760,6 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
                 }
 
                 queue.push(neighbor);
-
-                // Check if this cell is on the boundary
-                const neighborNeighbors = getNeighbors(neighbor, width, height);
-                for (let nn of neighborNeighbors) {
-                    if (visited[nn] === 0 && data[nn] >= maxWaterLevel) {
-                        boundaryCells.add(neighbor);
-                        break;
-                    }
-                }
             }
         }
     }
@@ -842,17 +793,7 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
     debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
 
-    // Filter boundary cells to only include those in the selected flooded region
-    const filteredBoundary = new Set();
-    for (let cell of boundaryCells) {
-        if (flooded.has(cell)) {
-            filteredBoundary.add(cell);
-        }
-    }
-
-    debugLog(`Boundary cells: ${filteredBoundary.size} (${((filteredBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
-
-    return { flooded, barriers, boundary: filteredBoundary };
+    return { flooded, barriers };
 }
 
 /**
