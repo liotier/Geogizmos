@@ -827,50 +827,387 @@
     <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
     
     <script>
+        // ============================================================================
+        // CONFIGURATION CONSTANTS
+        // ============================================================================
+
+        const CONFIG = {
+            // API Configuration
+            OVERPASS_API_URL: 'https://overpass-api.de/api/interpreter',
+            OVERPASS_TIMEOUT: 30,
+            NOMINATIM_API_URL: 'https://nominatim.openstreetmap.org/search',
+
+            // Retry Configuration
+            MAX_RETRIES: 3,
+            RETRY_DELAYS: [1000, 2000, 4000], // Exponential backoff in ms
+
+            // WebGL Configuration
+            MAX_FEATURES: 5000,
+            TEXTURE_SIZE: 128,
+            WEBGL_CONTEXT_OPTIONS: {
+                alpha: true,
+                antialias: true,
+                preserveDrawingBuffer: true
+            },
+
+            // Visualization Defaults
+            DEFAULT_RADIUS_PERCENT: 0.12, // 12% of area characteristic dimension
+            MIN_DISTANCE_KM: 0.01, // 10 meters
+            MAX_VORONOI_COALESCE_KM: 20,
+            DEFAULT_TRANSPARENCY: 0.5,
+            DEFAULT_IDW_POWER: 2.0,
+            DEFAULT_HEAT_BANDWIDTH: 0.3,
+
+            // UI Timing
+            SEARCH_DEBOUNCE_MS: 300,
+            VORONOI_UPDATE_DEBOUNCE_MS: 200,
+            MESSAGE_TIMEOUT_MS: 5000,
+            STATUS_HIDE_DELAY_MS: 1000,
+            SLIDER_THROTTLE_MS: 16, // ~60fps
+
+            // Color Interpolation
+            PALETTE_INTERPOLATION_STEPS: 17,
+
+            // Local Storage Keys
+            STORAGE_PREFIX: 'isosmfar_',
+            STORAGE_KEYS: {
+                PALETTE: 'palette',
+                BASEMAP: 'basemap',
+                MODE: 'visualization_mode',
+                TRANSPARENCY: 'transparency',
+                LAST_QUERY: 'last_query'
+            },
+
+            // IndexedDB Configuration
+            DB_NAME: 'isosmfar_cache',
+            DB_VERSION: 1,
+            CACHE_STORE_NAME: 'overpass_results',
+            CACHE_MAX_AGE_DAYS: 7
+        };
+
+        // ============================================================================
+        // UTILITY FUNCTIONS
+        // ============================================================================
+
+        /**
+         * Creates a debounced function that delays execution until after wait milliseconds
+         * have elapsed since the last call
+         */
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        /**
+         * Creates a throttled function that only invokes func at most once per every wait milliseconds
+         */
+        function throttle(func, wait) {
+            let inThrottle, lastFn, lastTime;
+            return function(...args) {
+                if (!inThrottle) {
+                    func.apply(this, args);
+                    lastTime = Date.now();
+                    inThrottle = true;
+                } else {
+                    clearTimeout(lastFn);
+                    lastFn = setTimeout(() => {
+                        if (Date.now() - lastTime >= wait) {
+                            func.apply(this, args);
+                            lastTime = Date.now();
+                        }
+                    }, Math.max(wait - (Date.now() - lastTime), 0));
+                }
+            };
+        }
+
+        /**
+         * Retries an async function with exponential backoff
+         * @param {Function} fn - Async function to retry
+         * @param {number} maxRetries - Maximum number of retry attempts
+         * @param {number[]} delays - Array of delay times in ms
+         * @returns {Promise} Result of the function
+         */
+        async function retryWithBackoff(fn, maxRetries = CONFIG.MAX_RETRIES, delays = CONFIG.RETRY_DELAYS) {
+            let lastError;
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    return await fn();
+                } catch (error) {
+                    lastError = error;
+                    if (attempt < maxRetries) {
+                        const delay = delays[Math.min(attempt, delays.length - 1)];
+                        console.warn(`Attempt ${attempt + 1} failed, retrying in ${delay}ms...`, error);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+            }
+            throw new Error(`Failed after ${maxRetries + 1} attempts: ${lastError.message}`);
+        }
+
+        /**
+         * Local storage wrapper with prefix support
+         */
+        const storage = {
+            set(key, value) {
+                try {
+                    localStorage.setItem(CONFIG.STORAGE_PREFIX + key, JSON.stringify(value));
+                    return true;
+                } catch (e) {
+                    console.warn('LocalStorage set failed:', e);
+                    return false;
+                }
+            },
+            get(key, defaultValue = null) {
+                try {
+                    const item = localStorage.getItem(CONFIG.STORAGE_PREFIX + key);
+                    return item ? JSON.parse(item) : defaultValue;
+                } catch (e) {
+                    console.warn('LocalStorage get failed:', e);
+                    return defaultValue;
+                }
+            },
+            remove(key) {
+                try {
+                    localStorage.removeItem(CONFIG.STORAGE_PREFIX + key);
+                    return true;
+                } catch (e) {
+                    console.warn('LocalStorage remove failed:', e);
+                    return false;
+                }
+            }
+        };
+
+        /**
+         * URL state management for sharing visualizations
+         */
+        const urlState = {
+            /**
+             * Encodes current visualization state into URL hash
+             */
+            encode(state) {
+                const params = new URLSearchParams();
+                for (const [key, value] of Object.entries(state)) {
+                    if (value !== null && value !== undefined) {
+                        params.set(key, String(value));
+                    }
+                }
+                return params.toString();
+            },
+
+            /**
+             * Decodes visualization state from URL hash
+             */
+            decode() {
+                const hash = window.location.hash.slice(1);
+                if (!hash) return {};
+
+                const params = new URLSearchParams(hash);
+                const state = {};
+                for (const [key, value] of params.entries()) {
+                    // Try to parse numbers
+                    if (!isNaN(value) && value !== '') {
+                        state[key] = parseFloat(value);
+                    } else if (value === 'true' || value === 'false') {
+                        state[key] = value === 'true';
+                    } else {
+                        state[key] = value;
+                    }
+                }
+                return state;
+            },
+
+            /**
+             * Updates URL hash without triggering navigation
+             */
+            update(state) {
+                const encoded = this.encode(state);
+                if (encoded) {
+                    window.history.replaceState(null, '', '#' + encoded);
+                }
+            }
+        };
+
+        /**
+         * IndexedDB cache for Overpass API results
+         */
+        class CacheDB {
+            constructor() {
+                this.db = null;
+                this.initPromise = this.init();
+            }
+
+            async init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
+
+                    request.onerror = () => {
+                        console.warn('IndexedDB init failed:', request.error);
+                        resolve(null); // Continue without cache
+                    };
+
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        resolve(this.db);
+                    };
+
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains(CONFIG.CACHE_STORE_NAME)) {
+                            const store = db.createObjectStore(CONFIG.CACHE_STORE_NAME, { keyPath: 'key' });
+                            store.createIndex('timestamp', 'timestamp', { unique: false });
+                        }
+                    };
+                });
+            }
+
+            async get(key) {
+                await this.initPromise;
+                if (!this.db) return null;
+
+                return new Promise((resolve) => {
+                    try {
+                        const transaction = this.db.transaction([CONFIG.CACHE_STORE_NAME], 'readonly');
+                        const store = transaction.objectStore(CONFIG.CACHE_STORE_NAME);
+                        const request = store.get(key);
+
+                        request.onsuccess = () => {
+                            const result = request.result;
+                            if (!result) {
+                                resolve(null);
+                                return;
+                            }
+
+                            // Check if cache is expired
+                            const age = Date.now() - result.timestamp;
+                            const maxAge = CONFIG.CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+                            if (age > maxAge) {
+                                this.delete(key); // Clean up expired entry
+                                resolve(null);
+                            } else {
+                                resolve(result.data);
+                            }
+                        };
+
+                        request.onerror = () => resolve(null);
+                    } catch (e) {
+                        console.warn('Cache get error:', e);
+                        resolve(null);
+                    }
+                });
+            }
+
+            async set(key, data) {
+                await this.initPromise;
+                if (!this.db) return false;
+
+                return new Promise((resolve) => {
+                    try {
+                        const transaction = this.db.transaction([CONFIG.CACHE_STORE_NAME], 'readwrite');
+                        const store = transaction.objectStore(CONFIG.CACHE_STORE_NAME);
+                        const request = store.put({
+                            key,
+                            data,
+                            timestamp: Date.now()
+                        });
+
+                        request.onsuccess = () => resolve(true);
+                        request.onerror = () => resolve(false);
+                    } catch (e) {
+                        console.warn('Cache set error:', e);
+                        resolve(false);
+                    }
+                });
+            }
+
+            async delete(key) {
+                await this.initPromise;
+                if (!this.db) return false;
+
+                return new Promise((resolve) => {
+                    try {
+                        const transaction = this.db.transaction([CONFIG.CACHE_STORE_NAME], 'readwrite');
+                        const store = transaction.objectStore(CONFIG.CACHE_STORE_NAME);
+                        const request = store.delete(key);
+
+                        request.onsuccess = () => resolve(true);
+                        request.onerror = () => resolve(false);
+                    } catch (e) {
+                        console.warn('Cache delete error:', e);
+                        resolve(false);
+                    }
+                });
+            }
+        }
+
+        // ============================================================================
+        // MAIN APPLICATION CLASS
+        // ============================================================================
+
         class IsosmfarApp {
             constructor() {
+                // =================================================================
+                // Core State
+                // =================================================================
                 this.map = null;
                 this.selectedArea = null;
                 this.lastResults = null;
                 this.searchTimeout = null;
-                
-                // Visualization mode
-                this.visualizationMode = 'distance'; // 'distance', 'density', 'idw', or 'heat'
-                
+
+                // Initialize cache for API results
+                this.cache = new CacheDB();
+
+                // =================================================================
+                // Visualization Mode & Parameters
+                // =================================================================
+                // Load from URL state first, then localStorage, then defaults
+                const urlParams = urlState.decode();
+
+                this.visualizationMode = urlParams.mode ||
+                    storage.get(CONFIG.STORAGE_KEYS.MODE, 'distance');
+
                 // Mode-specific parameters
-                this.idwPower = 2.0;
-                this.heatBandwidth = 0.3; // as percentage of radius
-                
+                this.idwPower = urlParams.idwPower || CONFIG.DEFAULT_IDW_POWER;
+                this.heatBandwidth = urlParams.heatBandwidth || CONFIG.DEFAULT_HEAT_BANDWIDTH;
+
                 // Voronoi overlay state
-                this.showVoronoiBorders = false;
-                this.voronoiCoalesceKm = 0; // 0 = no coalescing
-                
+                this.showVoronoiBorders = urlParams.voronoi || false;
+                this.voronoiCoalesceKm = urlParams.coalesce || 0;
+
                 // Visualization parameters
-                this.maxDistanceKm = 50;
+                this.maxDistanceKm = urlParams.radius || 50;
                 this.maxDistanceLimit = null;
-                this.transparency = 0.5;
+                this.transparency = urlParams.transparency ||
+                    storage.get(CONFIG.STORAGE_KEYS.TRANSPARENCY, CONFIG.DEFAULT_TRANSPARENCY);
                 this.computedMaxDistance = null;
-                
-                // Gradient field layer
+
+                // =================================================================
+                // Layer & Feature State
+                // =================================================================
                 this.gradientFieldLayer = null;
-                
-                // Store Voronoi GeoJSON for toggling
                 this.voronoiGeoJSON = null;
-                
-                // Store original features for recomputing Voronoi
                 this.originalFeatures = null;
                 this.areaBoundary = null;
-                
-                // Slider drag state
+
+                // =================================================================
+                // UI State
+                // =================================================================
                 this.draggingCursor = null;
-                
-                // Debounce timer for Voronoi recomputation
                 this.voronoiUpdateTimer = null;
-                
-                // Current basemap
-                this.currentBasemap = 'standard';
-                
-                // Color palettes (9 colors each)
+
+                // Basemap selection
+                this.currentBasemap = urlParams.basemap ||
+                    storage.get(CONFIG.STORAGE_KEYS.BASEMAP, 'standard');
+
+                // =================================================================
+                // Color Palettes (9 colors each, interpolated to 17)
+                // =================================================================
                 this.colorPalettes = {
                     blue: ['#f7fbff','#deebf7','#c6dbef','#9ecae1','#6baed6','#4292c6','#2171b5','#08519c','#08306b'],
                     green: ['#f7fcf5','#e5f5e0','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#006d2c','#00441b'],
@@ -879,13 +1216,18 @@
                     purple: ['#fcfbfd','#efedf5','#dadaeb','#bcbddc','#9e9ac8','#807dba','#6a51a3','#54278f','#3f007d'],
                     red: ['#fff5f0','#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d']
                 };
-                
-                this.currentPalette = 'blue';
+
+                this.currentPalette = urlParams.palette ||
+                    storage.get(CONFIG.STORAGE_KEYS.PALETTE, 'blue');
                 this.interpolatedPalettes = {};
-                
+
                 this.init();
             }
-            
+
+            // =====================================================================
+            // INITIALIZATION
+            // =====================================================================
+
             init() {
                 this.interpolatePalettes();
                 this.initPaletteSelector();
@@ -896,7 +1238,86 @@
                 this.initVoronoiCheckbox();
                 this.initCoalesceSlider();
                 this.initModeSpecificSliders();
+                this.loadStateFromURL();
+                this.restoreUIFromState();
             }
+
+            /**
+             * Load state from URL parameters (if present)
+             */
+            loadStateFromURL() {
+                const urlParams = urlState.decode();
+
+                if (urlParams.area) {
+                    document.getElementById('area').value = urlParams.area;
+                }
+                if (urlParams.query) {
+                    document.getElementById('feature-query').value = urlParams.query;
+                }
+            }
+
+            /**
+             * Restore UI controls to match current state
+             */
+            restoreUIFromState() {
+                // Set basemap dropdown
+                const basemapSelect = document.getElementById('basemap');
+                if (basemapSelect) {
+                    basemapSelect.value = this.currentBasemap;
+                }
+
+                // Set visualization mode buttons
+                const modeButtons = document.querySelectorAll('.toggle-button');
+                modeButtons.forEach(btn => {
+                    if (btn.dataset.mode === this.visualizationMode) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+
+                // Update UI for current mode
+                this.updateUIForMode();
+            }
+
+            /**
+             * Save current state to both URL and localStorage
+             */
+            saveState() {
+                const state = {
+                    mode: this.visualizationMode,
+                    palette: this.currentPalette,
+                    basemap: this.currentBasemap,
+                    transparency: this.transparency,
+                    radius: this.maxDistanceKm,
+                    idwPower: this.idwPower,
+                    heatBandwidth: this.heatBandwidth,
+                    voronoi: this.showVoronoiBorders,
+                    coalesce: this.voronoiCoalesceKm
+                };
+
+                // Add area and query if present
+                const area = document.getElementById('area').value;
+                const query = document.getElementById('feature-query').value;
+                if (area) state.area = area;
+                if (query) state.query = query;
+
+                // Save to URL
+                urlState.update(state);
+
+                // Save preferences to localStorage
+                storage.set(CONFIG.STORAGE_KEYS.MODE, this.visualizationMode);
+                storage.set(CONFIG.STORAGE_KEYS.PALETTE, this.currentPalette);
+                storage.set(CONFIG.STORAGE_KEYS.BASEMAP, this.currentBasemap);
+                storage.set(CONFIG.STORAGE_KEYS.TRANSPARENCY, this.transparency);
+                if (query) {
+                    storage.set(CONFIG.STORAGE_KEYS.LAST_QUERY, query);
+                }
+            }
+
+            // =====================================================================
+            // UI INITIALIZATION
+            // =====================================================================
             
             initModeToggle() {
                 const toggleButtons = document.querySelectorAll('.toggle-button');
@@ -905,13 +1326,16 @@
                         // Update active state
                         toggleButtons.forEach(b => b.classList.remove('active'));
                         button.classList.add('active');
-                        
+
                         // Update mode
                         this.visualizationMode = button.dataset.mode;
-                        
+
                         // Update UI labels based on mode
                         this.updateUIForMode();
-                        
+
+                        // Save state
+                        this.saveState();
+
                         // Re-render if we have data
                         if (this.gradientFieldLayer) {
                             this.updateVisualization();
@@ -1106,7 +1530,7 @@
             
             switchBasemap(basemapType) {
                 let tiles, attribution;
-                
+
                 switch(basemapType) {
                     case 'humanitarian':
                         tiles = ['https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
@@ -1122,7 +1546,7 @@
                         tiles = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
                         attribution = '© Openstreetmap';
                 }
-                
+
                 // Remove old source and layer
                 if (this.map.getLayer('osm')) {
                     this.map.removeLayer('osm');
@@ -1130,7 +1554,7 @@
                 if (this.map.getSource('osm')) {
                     this.map.removeSource('osm');
                 }
-                
+
                 // Add new source and layer
                 this.map.addSource('osm', {
                     type: 'raster',
@@ -1138,19 +1562,22 @@
                     tileSize: 256,
                     attribution: attribution
                 });
-                
+
                 // Add the layer at the bottom
                 this.map.addLayer({
                     id: 'osm',
                     type: 'raster',
                     source: 'osm'
                 }, this.map.getLayer('gradient-field') ? 'gradient-field' : undefined);
-                
+
                 this.currentBasemap = basemapType;
+                this.saveState(); // Save basemap preference
             }
-            
+
             switchPalette(paletteName) {
                 this.currentPalette = paletteName;
+                this.saveState(); // Save palette preference
+
                 if (this.gradientFieldLayer) {
                     this.updateVisualization();
                 }
@@ -1162,83 +1589,96 @@
                     this.map.setPaintProperty('features', 'circle-stroke-color', pointColor);
                 }
             }
-            
+
             initSliderControls() {
                 const distanceCursor = document.getElementById('distance-cursor');
                 const distanceSlider = document.getElementById('distance-slider');
                 const transparencyCursor = document.getElementById('transparency-cursor');
                 const transparencySlider = document.getElementById('transparency-slider');
-                
+
+                // Create throttled versions of updateVisualization and saveState
+                const throttledUpdate = throttle(() => this.updateVisualization(), CONFIG.SLIDER_THROTTLE_MS);
+                const throttledSaveState = throttle(() => this.saveState(), 500);
+
                 distanceCursor.addEventListener('mousedown', (e) => {
                     this.draggingCursor = { cursor: distanceCursor, slider: distanceSlider, type: 'distance' };
                     e.preventDefault();
                 });
-                
+
                 transparencyCursor.addEventListener('mousedown', (e) => {
                     this.draggingCursor = { cursor: transparencyCursor, slider: transparencySlider, type: 'transparency' };
                     e.preventDefault();
                 });
-                
+
                 document.addEventListener('mousemove', (e) => {
                     if (!this.draggingCursor) return;
-                    
+
                     const rect = this.draggingCursor.slider.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
-                    
+
                     this.draggingCursor.cursor.style.left = percent + '%';
-                    
+
                     if (this.draggingCursor.type === 'distance') {
                         // Use exponential scale for better control at lower values
                         const logValue = percent / 100;
-                        // Calculate distance with exponential scale, minimum 0.01 km (10 meters)
-                        const calculatedDistance = Math.pow(this.maxDistanceLimit / 0.01, logValue) * 0.01;
+                        // Calculate distance with exponential scale, minimum configured
+                        const calculatedDistance = Math.pow(this.maxDistanceLimit / CONFIG.MIN_DISTANCE_KM, logValue) * CONFIG.MIN_DISTANCE_KM;
                         this.maxDistanceKm = Math.min(calculatedDistance, this.maxDistanceLimit);
                         // Round to appropriate precision based on scale
                         if (this.maxDistanceKm < 1) {
-                            this.maxDistanceKm = Math.round(this.maxDistanceKm * 100) / 100; // 2 decimal places for < 1km
+                            this.maxDistanceKm = Math.round(this.maxDistanceKm * 100) / 100;
                         } else {
-                            this.maxDistanceKm = Math.round(this.maxDistanceKm); // whole numbers for >= 1km
+                            this.maxDistanceKm = Math.round(this.maxDistanceKm);
                         }
                         this.updateSliderValues();
-                        this.updateVisualization();
+                        throttledUpdate();
+                        throttledSaveState();
                     } else if (this.draggingCursor.type === 'transparency') {
                         this.transparency = percent / 100;
                         this.updateSliderValues();
-                        this.updateVisualization();
+                        throttledUpdate();
+                        throttledSaveState();
                     } else if (this.draggingCursor.type === 'coalesce') {
-                        // Exponential scale from 0 to 20km
+                        // Exponential scale from 0 to max configured
                         if (percent === 0) {
                             this.voronoiCoalesceKm = 0;
                         } else {
                             const logValue = percent / 100;
-                            this.voronoiCoalesceKm = Math.pow(20 / 0.001, logValue) * 0.001;
+                            this.voronoiCoalesceKm = Math.pow(CONFIG.MAX_VORONOI_COALESCE_KM / 0.001, logValue) * 0.001;
                             if (this.voronoiCoalesceKm < 0.01) {
-                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 1000) / 1000; // 3 decimal places
+                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 1000) / 1000;
                             } else if (this.voronoiCoalesceKm < 1) {
-                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 100) / 100; // 2 decimal places
+                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 100) / 100;
                             } else {
-                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 10) / 10; // 1 decimal place
+                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 10) / 10;
                             }
                         }
                         this.updateCoalesceValue();
                         this.debouncedVoronoiUpdate();
+                        throttledSaveState();
                     } else if (this.draggingCursor.type === 'idw-power') {
                         // Linear scale from 1.0 to 5.0
                         this.idwPower = 1.0 + (percent / 100) * 4.0;
                         this.idwPower = Math.round(this.idwPower * 10) / 10;
                         document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
-                        this.updateVisualization();
+                        throttledUpdate();
+                        throttledSaveState();
                     } else if (this.draggingCursor.type === 'heat-bandwidth') {
                         // Linear scale from 0.1 to 1.0 (10% to 100%)
                         this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
                         this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
                         document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
-                        this.updateVisualization();
+                        throttledUpdate();
+                        throttledSaveState();
                     }
                 });
-                
+
                 document.addEventListener('mouseup', () => {
+                    if (this.draggingCursor) {
+                        // Final save when drag ends
+                        this.saveState();
+                    }
                     this.draggingCursor = null;
                 });
             }
@@ -1267,13 +1707,17 @@
                 document.getElementById('coalesce-value').textContent = coalesceText;
             }
             
+            /**
+             * Debounced Voronoi diagram recomputation
+             * Delays computation to avoid excessive recalculation during slider dragging
+             */
             debouncedVoronoiUpdate() {
                 clearTimeout(this.voronoiUpdateTimer);
                 this.voronoiUpdateTimer = setTimeout(() => {
                     if (this.originalFeatures) {
                         this.recomputeVoronoi();
                     }
-                }, 200);
+                }, CONFIG.VORONOI_UPDATE_DEBOUNCE_MS);
             }
             
             updateVisualization() {
@@ -1351,18 +1795,30 @@
                 document.getElementById('export-png').addEventListener('click', () => this.exportPNG());
             }
             
+            /**
+             * Search for areas using Nominatim geocoding API with retry logic
+             * @param {string} query - Search query string
+             */
             async searchArea(query) {
                 try {
-                    const response = await fetch(
-                        `https://nominatim.openstreetmap.org/search?` +
-                        `format=jsonv2&q=${encodeURIComponent(query)}&` +
-                        `limit=10&addressdetails=1&polygon_geojson=1`
-                    );
-                    
-                    const results = await response.json();
+                    const results = await retryWithBackoff(async () => {
+                        const response = await fetch(
+                            `${CONFIG.NOMINATIM_API_URL}?` +
+                            `format=jsonv2&q=${encodeURIComponent(query)}&` +
+                            `limit=10&addressdetails=1&polygon_geojson=1`
+                        );
+
+                        if (!response.ok) {
+                            throw new Error(`Nominatim API error: ${response.status} ${response.statusText}`);
+                        }
+
+                        return await response.json();
+                    });
+
                     this.showAreaResults(results);
                 } catch (error) {
                     console.error('Area search error:', error);
+                    this.showMessage(`Area search failed: ${error.message}. Please try again.`, 'error');
                 }
             }
             
@@ -1768,9 +2224,26 @@
                 };
             }
             
+            /**
+             * Query OSM features using Overpass API with caching and retry logic
+             * @param {string} query - Overpass QL query fragment
+             * @param {string} areaId - OSM area ID
+             * @returns {Promise<Array>} Array of features with lat/lon
+             */
             async queryOSMFeatures(query, areaId) {
+                // Create cache key from query and area
+                const cacheKey = `overpass_${areaId}_${query}`;
+
+                // Try cache first
+                const cachedData = await this.cache.get(cacheKey);
+                if (cachedData) {
+                    console.log('Using cached Overpass results');
+                    return cachedData;
+                }
+
+                // Build Overpass query
                 const overpassQuery = `
-                    [out:csv(::id,::lat,::lon)][timeout:30];
+                    [out:csv(::id,::lat,::lon)][timeout:${CONFIG.OVERPASS_TIMEOUT}];
                     area(id:${areaId})->.a;
                     (
                         node(area.a)${query};
@@ -1779,14 +2252,31 @@
                     );
                     out center;
                 `;
-                
-                const response = await fetch('https://overpass-api.de/api/interpreter', {
-                    method: 'POST',
-                    body: `data=${encodeURIComponent(overpassQuery)}`
+
+                // Fetch with retry logic
+                const csv = await retryWithBackoff(async () => {
+                    const response = await fetch(CONFIG.OVERPASS_API_URL, {
+                        method: 'POST',
+                        body: `data=${encodeURIComponent(overpassQuery)}`,
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Overpass API error: ${response.status} ${response.statusText}`);
+                    }
+
+                    return await response.text();
                 });
-                
-                const csv = await response.text();
-                return this.parseCSV(csv);
+
+                // Parse results
+                const features = this.parseCSV(csv);
+
+                // Cache the results
+                await this.cache.set(cacheKey, features);
+
+                return features;
             }
             
             parseCSV(csv) {
@@ -1913,6 +2403,27 @@
                     heatBandwidth: heatBandwidth,
                     
                     onAdd: function(map, gl) {
+                        // =========================================================
+                        // WebGL VERSION DETECTION
+                        // =========================================================
+                        // Detect WebGL version and capabilities
+                        const isWebGL2 = gl instanceof WebGL2RenderingContext;
+                        this.isWebGL2 = isWebGL2;
+
+                        if (isWebGL2) {
+                            console.log('Using WebGL 2.0 for enhanced performance');
+                        } else {
+                            console.log('Using WebGL 1.0 with extensions');
+                            // Check for required extensions in WebGL 1
+                            const floatTextureExt = gl.getExtension('OES_texture_float');
+                            if (!floatTextureExt) {
+                                console.warn('Float textures not fully supported, performance may be reduced');
+                            }
+                        }
+
+                        // =========================================================
+                        // SHADER DEFINITIONS
+                        // =========================================================
                         const vertexShader = `
                             attribute vec2 a_position;
                             uniform mat4 u_matrix;
@@ -2151,45 +2662,57 @@
                         
                         this.gl = gl;
                         this.map = map;
-                        
-                        // Create texture for features
-                        const textureSize = 128;
+
+                        // =========================================================
+                        // FEATURE TEXTURE CREATION
+                        // =========================================================
+                        // Create texture for storing feature positions
+                        // Uses configured texture size and max features limit
+                        const textureSize = CONFIG.TEXTURE_SIZE;
                         this.textureSize = textureSize;
-                        
+
                         const textureData = new Float32Array(textureSize * textureSize * 4);
-                        const maxFeatures = Math.min(this.features.length, 5000);
-                        
+                        const maxFeatures = Math.min(this.features.length, CONFIG.MAX_FEATURES);
+
+                        // Convert feature coordinates to Mercator projection for GPU
                         for (let i = 0; i < maxFeatures; i++) {
                             const mc = maplibregl.MercatorCoordinate.fromLngLat([
-                                this.features[i].lon, 
+                                this.features[i].lon,
                                 this.features[i].lat
                             ]);
                             textureData[i * 4] = mc.x;
                             textureData[i * 4 + 1] = mc.y;
                         }
-                        
+
+                        // Create and configure features texture
                         this.featuresTexture = gl.createTexture();
                         gl.bindTexture(gl.TEXTURE_2D, this.featuresTexture);
-                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F || gl.RGBA, textureSize, textureSize, 0, 
+
+                        // Use WebGL 2.0 internal format if available, fallback to WebGL 1.0
+                        const internalFormat = isWebGL2 ? gl.RGBA32F : gl.RGBA;
+                        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, textureSize, textureSize, 0,
                                      gl.RGBA, gl.FLOAT, textureData);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
                         
-                        // Create texture for boundary
+                        // =========================================================
+                        // BOUNDARY TEXTURE CREATION
+                        // =========================================================
+                        // Create texture for storing boundary polygon vertices
                         const boundaryTextureSize = 64;
                         this.boundaryTextureSize = boundaryTextureSize;
-                        
+
                         const boundaryTextureData = new Float32Array(boundaryTextureSize * boundaryTextureSize * 4);
                         const boundaryVertexCount = Math.min(this.boundaryCoords.length, 4096);
-                        
+
                         for (let i = 0; i < boundaryVertexCount; i++) {
                             boundaryTextureData[i * 4] = this.boundaryCoords[i].x;
                             boundaryTextureData[i * 4 + 1] = this.boundaryCoords[i].y;
                         }
-                        
+
                         this.boundaryTexture = gl.createTexture();
                         gl.bindTexture(gl.TEXTURE_2D, this.boundaryTexture);
-                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F || gl.RGBA, boundaryTextureSize, boundaryTextureSize, 0,
+                        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, boundaryTextureSize, boundaryTextureSize, 0,
                                      gl.RGBA, gl.FLOAT, boundaryTextureData);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -2398,31 +2921,130 @@
                 this.map.triggerRepaint();
             }
             
+            // =================================================================
+            // UI FEEDBACK METHODS
+            // =================================================================
+
+            /**
+             * Show status message in bottom bar
+             * @param {string} text - Status message to display
+             */
             showStatus(text) {
                 document.getElementById('status').classList.add('active');
                 document.getElementById('status-text').textContent = text;
             }
-            
+
+            /**
+             * Hide status bar with configured delay
+             */
             hideStatus() {
                 setTimeout(() => {
                     document.getElementById('status').classList.remove('active');
-                }, 1000);
+                }, CONFIG.STATUS_HIDE_DELAY_MS);
             }
-            
+
+            /**
+             * Update progress bar fill percentage
+             * @param {number} value - Progress value between 0 and 1
+             */
             updateProgress(value) {
                 document.getElementById('progress-fill').style.width = `${value * 100}%`;
             }
-            
+
+            /**
+             * Show temporary message to user
+             * @param {string} text - Message text
+             * @param {string} type - Message type: 'info', 'error', 'warning'
+             */
             showMessage(text, type = 'info') {
                 const messages = document.getElementById('messages');
                 messages.innerHTML = `<div class="message ${type}-message">${text}</div>`;
                 setTimeout(() => {
                     messages.innerHTML = '';
-                }, 5000);
+                }, CONFIG.MESSAGE_TIMEOUT_MS);
             }
         }
-        
-        // Initialize app
+
+        // ============================================================================
+        // SERVICE WORKER REGISTRATION (PWA Support)
+        // ============================================================================
+
+        /**
+         * Register service worker for offline functionality
+         * Enhances app as Progressive Web App
+         */
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Create inline service worker
+                const swCode = `
+                    const CACHE_NAME = 'isosmfar-v1';
+                    const urlsToCache = [
+                        './',
+                        './Isosmfar.html',
+                        'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css',
+                        'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js',
+                        'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js',
+                        'https://cdn.jsdelivr.net/npm/d3-delaunay@6'
+                    ];
+
+                    self.addEventListener('install', (event) => {
+                        event.waitUntil(
+                            caches.open(CACHE_NAME)
+                                .then((cache) => cache.addAll(urlsToCache))
+                                .catch((error) => console.log('Cache install failed:', error))
+                        );
+                    });
+
+                    self.addEventListener('fetch', (event) => {
+                        // Only cache GET requests
+                        if (event.request.method !== 'GET') return;
+
+                        // Skip Overpass and Nominatim API requests
+                        if (event.request.url.includes('overpass-api.de') ||
+                            event.request.url.includes('nominatim.openstreetmap.org')) {
+                            return;
+                        }
+
+                        event.respondWith(
+                            caches.match(event.request)
+                                .then((response) => response || fetch(event.request))
+                        );
+                    });
+
+                    self.addEventListener('activate', (event) => {
+                        event.waitUntil(
+                            caches.keys().then((cacheNames) => {
+                                return Promise.all(
+                                    cacheNames.map((cacheName) => {
+                                        if (cacheName !== CACHE_NAME) {
+                                            return caches.delete(cacheName);
+                                        }
+                                    })
+                                );
+                            })
+                        );
+                    });
+                `;
+
+                // Create blob URL for service worker
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+
+                navigator.serviceWorker.register(swUrl)
+                    .then((registration) => {
+                        console.log('Service Worker registered successfully:', registration.scope);
+                    })
+                    .catch((error) => {
+                        console.log('Service Worker registration failed:', error);
+                    });
+            });
+        }
+
+        // ============================================================================
+        // APPLICATION INITIALIZATION
+        // ============================================================================
+
+        // Initialize app when DOM is ready
         const app = new IsosmfarApp();
     </script>
 </body>
