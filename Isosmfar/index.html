@@ -1249,6 +1249,12 @@
                 this.draggingCursor = null;
                 this.voronoiUpdateTimer = null;
 
+                // Create throttled visualization update for slider drag performance
+                // Using CONFIG.SLIDER_THROTTLE_MS (16ms = ~60fps) to balance smoothness and performance
+                this.throttledVisualizationUpdate = throttle(() => {
+                    this.updateVisualization();
+                }, CONFIG.SLIDER_THROTTLE_MS);
+
                 // Basemap selection
                 this.currentBasemap = urlParams.basemap ||
                     storage.get(CONFIG.STORAGE_KEYS.BASEMAP, 'standard');
@@ -1288,7 +1294,7 @@
                     document.getElementById('area').value = urlParams.area;
                 }
                 if (urlParams.query) {
-                    document.getElementById('feature-query').value = urlParams.query;
+                    document.getElementById('query').value = urlParams.query;
                 }
             }
 
@@ -1334,7 +1340,7 @@
 
                 // Add area and query if present
                 const area = document.getElementById('area').value;
-                const query = document.getElementById('feature-query').value;
+                const query = document.getElementById('query').value;
                 if (area) state.area = area;
                 if (query) state.query = query;
 
@@ -1664,11 +1670,11 @@
                             this.maxDistanceKm = Math.round(this.maxDistanceKm);
                         }
                         this.updateSliderValues();
-                        this.updateVisualization();
+                        this.throttledVisualizationUpdate();
                     } else if (this.draggingCursor.type === 'transparency') {
                         this.transparency = percent / 100;
                         this.updateSliderValues();
-                        this.updateVisualization();
+                        this.throttledVisualizationUpdate();
                     } else if (this.draggingCursor.type === 'coalesce') {
                         // Exponential scale from 0 to max configured
                         if (percent === 0) {
@@ -1691,18 +1697,24 @@
                         this.idwPower = 1.0 + (percent / 100) * 4.0;
                         this.idwPower = Math.round(this.idwPower * 10) / 10;
                         document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
-                        this.updateVisualization();
+                        this.throttledVisualizationUpdate();
                     } else if (this.draggingCursor.type === 'heat-bandwidth') {
                         // Linear scale from 0.1 to 1.0 (10% to 100%)
                         this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
                         this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
                         document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
-                        this.updateVisualization();
+                        this.throttledVisualizationUpdate();
                     }
                 });
 
                 document.addEventListener('mouseup', () => {
                     if (this.draggingCursor) {
+                        // Cancel any pending throttled updates to prevent sticky behavior
+                        this.throttledVisualizationUpdate.cancel();
+
+                        // Do final direct update to ensure accurate final state
+                        this.updateVisualization();
+
                         // Save state when drag ends
                         this.saveState();
                     }
