@@ -93,7 +93,7 @@ export class PolygonGenerator {
         // Validate and simplify
         try {
             const area = window.turf.area(polygon);
-            if (isNaN(area) || area <= 0) {
+            if (Number.isNaN(area) || area <= 0) {
                 console.error('Invalid polygon area:', area);
                 return null;
             }
@@ -141,7 +141,7 @@ export class PolygonGenerator {
                 let y = point[1];
 
                 // Validate array coordinates
-                if (isNaN(x) || isNaN(y) || x < 0 || x > width || y < 0 || y > height) {
+                if (Number.isNaN(x) || Number.isNaN(y) || x < 0 || x > width || y < 0 || y > height) {
                     continue;
                 }
 
@@ -157,7 +157,7 @@ export class PolygonGenerator {
                 const lng = (tileX / n) * 360 - 180;
                 const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
 
-                if (!isNaN(lng) && !isNaN(lat) && isFinite(lng) && isFinite(lat)) {
+                if (!Number.isNaN(lng) && !Number.isNaN(lat) && isFinite(lng) && isFinite(lat)) {
                     geoRing.push([lng, lat]);
                 }
             }

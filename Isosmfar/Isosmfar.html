@@ -978,17 +978,17 @@
                 
                 if (this.visualizationMode === 'distance') {
                     radiusLabel.textContent = 'Gradient radius';
-                    radiusTooltip.setAttribute('data-tooltip', 'Adjust gradient radius around data points');
+                    radiusTooltip.dataset.tooltip = 'Adjust gradient radius around data points';
                 } else if (this.visualizationMode === 'density') {
                     radiusLabel.textContent = 'Density kernel radius';
-                    radiusTooltip.setAttribute('data-tooltip', 'Count features within this radius for density calculation');
+                    radiusTooltip.dataset.tooltip = 'Count features within this radius for density calculation';
                 } else if (this.visualizationMode === 'idw') {
                     radiusLabel.textContent = 'IDW influence radius';
-                    radiusTooltip.setAttribute('data-tooltip', 'Maximum distance for inverse distance weighting');
+                    radiusTooltip.dataset.tooltip = 'Maximum distance for inverse distance weighting';
                     document.getElementById('idw-controls').classList.add('active');
                 } else if (this.visualizationMode === 'heat') {
                     radiusLabel.textContent = 'Heat diffusion radius';
-                    radiusTooltip.setAttribute('data-tooltip', 'Maximum heat spread from source points');
+                    radiusTooltip.dataset.tooltip = 'Maximum heat spread from source points';
                     document.getElementById('heat-controls').classList.add('active');
                 }
             }
@@ -1398,8 +1398,8 @@
                 
                 if (area.boundingbox) {
                     const bounds = [
-                        [parseFloat(area.boundingbox[2]), parseFloat(area.boundingbox[0])],
-                        [parseFloat(area.boundingbox[3]), parseFloat(area.boundingbox[1])]
+                        [Number.parseFloat(area.boundingbox[2]), Number.parseFloat(area.boundingbox[0])],
+                        [Number.parseFloat(area.boundingbox[3]), Number.parseFloat(area.boundingbox[1])]
                     ];
                     this.map.fitBounds(bounds, { padding: 50 });
                 }
@@ -1796,9 +1796,9 @@
                 for (let i = 1; i < lines.length; i++) {
                     const parts = lines[i].split('\t');
                     if (parts.length >= 3) {
-                        const lat = parseFloat(parts[1]);
-                        const lon = parseFloat(parts[2]);
-                        if (!isNaN(lat) && !isNaN(lon)) {
+                        const lat = Number.parseFloat(parts[1]);
+                        const lon = Number.parseFloat(parts[2]);
+                        if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
                             const key = `${lat.toFixed(6)},${lon.toFixed(6)}`;
                             if (!seen.has(key)) {
                                 seen.add(key);
