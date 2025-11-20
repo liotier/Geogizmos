@@ -88,6 +88,9 @@ export class InundatorApp {
                 console.log('%c[Worker] ' + e.data.debug, 'color: blue');
             } else if (e.data.progress !== undefined) {
                 this.updateProgress(e.data.progress);
+                if (e.data.status) {
+                    this.showStatus(e.data.status);
+                }
             } else if (e.data.incrementalUpdate) {
                 this.updateIncrementalVisualization(e.data.flooded, e.data.cellCount);
             } else if (e.data.needMoreDEM) {
@@ -391,8 +394,8 @@ export class InundatorApp {
 
         console.log(`Expanding in directions: ${directions.join(', ')}`);
 
-        // Calculate expansion amount (start with 10km, then increase)
-        const expansionKm = Math.min(this.currentBufferKm, 20); // Expand by current buffer or 20km, whichever is smaller
+        // Calculate expansion amount - expand aggressively to reduce DEM fetches
+        const expansionKm = Math.min(this.currentBufferKm, 30); // Expand by current buffer or 30km, whichever is smaller
 
         // Check if we're within tile limits
         const testBounds = DamGeometry.expandBounds(this.currentBounds, edges, expansionKm);

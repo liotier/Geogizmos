@@ -9,14 +9,14 @@
  * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
  */
 
-const WORKER_VERSION = "2024.11.19.17";
+const WORKER_VERSION = "2024.11.19.18";
 
 // Worker configuration
 const CONFIG = {
     maxIterations: 20000000,  // Allow for massive valley lakes up to 30km+
     maxDebugMessages: 100,
     progressUpdateInterval: 50000,
-    edgeProximityThreshold: 200,  // Check for edge proximity conservatively (2-4km from edge)
+    edgeProximityThreshold: 500,  // Expand early to avoid re-flooding (5km from edge at zoom 13)
     noDataValue: -9999,
     safetyMargin: 1.0,        // Meters below dam crest to stop flooding
     minReservoirSize: 10,     // Minimum cells to be considered valid reservoir
@@ -243,7 +243,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         if (iterations % CONFIG.progressUpdateInterval === 0) {
             const totalCells = leftSide.size + rightSide.size;
             debugLog(`Iteration ${iterations}, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
-            self.postMessage({ progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8 });
+            self.postMessage({
+                progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
+                status: `Flooding: ${totalCells.toLocaleString()} cells (${iterations.toLocaleString()} iterations)`
+            });
         }
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
