@@ -673,16 +673,6 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     let rightStagnant = resumeState.rightStagnant;
     let iterations = resumeState.iterations;
 
-    // Calculate dam vector for partitioning (same as fresh start)
-    const firstDamCell = damCells[0];
-    const lastDamCell = damCells[damCells.length - 1];
-    const damX1 = firstDamCell % width;
-    const damY1 = Math.floor(firstDamCell / width);
-    const damX2 = lastDamCell % width;
-    const damY2 = Math.floor(lastDamCell / width);
-    const damVectorX = damX2 - damX1;
-    const damVectorY = damY2 - damY1;
-
     debugLog(`Continuing flood from iteration ${iterations} with ${queue.length} cells in queue`);
 
     // Continue the flood loop (identical to performIncrementalFlood)
