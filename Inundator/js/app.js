@@ -12,34 +12,34 @@ import { MapManager } from './ui/map-manager.js';
 import { Visualization } from './ui/visualization.js';
 
 export class InundatorApp {
+    // Services
+    elevationService = new ElevationService();
+    mapManager = new MapManager('map');
+    visualization = null; // Created after map init
+
+    // State
+    isDrawingDam = false;
+    damPoints = [];
+    damLine = null;
+    crestElevation = null;
+    floodPolygon = null;
+    demData = null;
+    originTileBounds = null; // Track grid origin for negative indices
+    currentMousePosition = null;
+    resumeState = null; // Track flood state for continuation after DEM expansion
+
+    // Worker
+    floodWorker = null;
+
+    // UI state
+    waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
+    safetyMargin = CONFIG.dam.defaultSafetyMargin;
+    searchTimeout = null;
+    currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
+    currentBounds = null; // Track current DEM bounds [west, south, east, north]
+    downstreamRejectionCount = 0; // Track consecutive downstream rejections
+
     constructor() {
-        // Services
-        this.elevationService = new ElevationService();
-        this.mapManager = new MapManager('map');
-        this.visualization = null; // Created after map init
-
-        // State
-        this.isDrawingDam = false;
-        this.damPoints = [];
-        this.damLine = null;
-        this.crestElevation = null;
-        this.floodPolygon = null;
-        this.demData = null;
-        this.originTileBounds = null; // Track grid origin for negative indices
-        this.currentMousePosition = null;
-        this.resumeState = null; // Track flood state for continuation after DEM expansion
-
-        // Worker
-        this.floodWorker = null;
-
-        // UI state
-        this.waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
-        this.safetyMargin = CONFIG.dam.defaultSafetyMargin;
-        this.searchTimeout = null;
-        this.currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
-        this.currentBounds = null; // Track current DEM bounds [west, south, east, north]
-        this.downstreamRejectionCount = 0; // Track consecutive downstream rejections
-
         this.init();
     }
 

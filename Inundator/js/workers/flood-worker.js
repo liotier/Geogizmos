@@ -140,10 +140,8 @@ function remapCellSet(oldCells, oldDemData, newDemData) {
  * Grows layer by layer, one cell at a time from all sides equally
  */
 class SimpleQueue {
-    constructor() {
-        this.items = [];
-        this.head = 0;
-    }
+    items = [];
+    head = 0;
 
     get length() {
         return this.items.length - this.head;

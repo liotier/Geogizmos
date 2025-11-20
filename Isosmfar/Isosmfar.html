@@ -996,9 +996,9 @@
             hexToRgb(hex) {
                 const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
                 return result ? {
-                    r: parseInt(result[1], 16),
-                    g: parseInt(result[2], 16),
-                    b: parseInt(result[3], 16)
+                    r: Number.parseInt(result[1], 16),
+                    g: Number.parseInt(result[2], 16),
+                    b: Number.parseInt(result[3], 16)
                 } : null;
             }
             
@@ -1482,7 +1482,7 @@
                         }
                     }
                     
-                    const areaId = 3600000000 + parseInt(this.selectedArea.osm_id);
+                    const areaId = 3600000000 + Number.parseInt(this.selectedArea.osm_id);
                     const boundary = this.selectedArea.geojson || this.makeBoundingBox(this.selectedArea.boundingbox);
                     
                     const areaSizeKm2 = turf.area(boundary) / 1000000;
@@ -2226,9 +2226,9 @@
                         for (let i = 0; i < 17; i++) {
                             const hex = palette[i];
                             const rgb = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-                            paletteData[i * 4] = parseInt(rgb[1], 16);
-                            paletteData[i * 4 + 1] = parseInt(rgb[2], 16);
-                            paletteData[i * 4 + 2] = parseInt(rgb[3], 16);
+                            paletteData[i * 4] = Number.parseInt(rgb[1], 16);
+                            paletteData[i * 4 + 1] = Number.parseInt(rgb[2], 16);
+                            paletteData[i * 4 + 2] = Number.parseInt(rgb[3], 16);
                             paletteData[i * 4 + 3] = 255;
                         }
                         

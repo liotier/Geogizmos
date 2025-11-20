@@ -9,11 +9,13 @@ import { CONFIG } from '../config.js';
  * IndexedDB cache for DEM tiles
  */
 class TileDBCache {
+    dbName = 'InundatorDEMCache';
+    storeName = 'tiles';
+    version = 1;
+    db = null;
+    initPromise;
+
     constructor() {
-        this.dbName = 'InundatorDEMCache';
-        this.storeName = 'tiles';
-        this.version = 1;
-        this.db = null;
         this.initPromise = this.init();
     }
 
@@ -74,10 +76,8 @@ class TileDBCache {
 }
 
 export class ElevationService {
-    constructor() {
-        this.tileCache = new Map(); // In-memory cache for current session
-        this.dbCache = new TileDBCache(); // Persistent IndexedDB cache
-    }
+    tileCache = new Map(); // In-memory cache for current session
+    dbCache = new TileDBCache(); // Persistent IndexedDB cache
 
     /**
      * Get elevation at a single point
