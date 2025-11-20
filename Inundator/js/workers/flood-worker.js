@@ -542,17 +542,24 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
 
-    // Filter boundary cells to only include those in the selected flooded region
-    const filteredBoundary = new Set();
-    for (let cell of boundaryCells) {
-        if (flooded.has(cell)) {
-            filteredBoundary.add(cell);
+    // Recalculate boundary cells for the selected flooded region
+    // The accumulated boundaryCells set is biased toward recently growing areas
+    // We need cells that are in 'flooded' and have at least one non-flooded neighbor
+    const recalculatedBoundary = new Set();
+    for (let cell of flooded) {
+        const neighbors = getNeighbors(cell, width, height);
+        for (let neighbor of neighbors) {
+            if (visited[neighbor] === 0 || visited[neighbor] === 2) {
+                // This cell has a non-flooded neighbor (either unvisited or barrier)
+                recalculatedBoundary.add(cell);
+                break;
+            }
         }
     }
 
-    debugLog(`Boundary cells: ${filteredBoundary.size} (${((filteredBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
+    debugLog(`Boundary cells: ${recalculatedBoundary.size} (${((recalculatedBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded, barriers, boundary: filteredBoundary };
+    return { flooded, barriers, boundary: recalculatedBoundary };
 }
 
 /**
@@ -842,17 +849,24 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
     debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
 
-    // Filter boundary cells to only include those in the selected flooded region
-    const filteredBoundary = new Set();
-    for (let cell of boundaryCells) {
-        if (flooded.has(cell)) {
-            filteredBoundary.add(cell);
+    // Recalculate boundary cells for the selected flooded region
+    // The accumulated boundaryCells set is biased toward recently growing areas
+    // We need cells that are in 'flooded' and have at least one non-flooded neighbor
+    const recalculatedBoundary = new Set();
+    for (let cell of flooded) {
+        const neighbors = getNeighbors(cell, width, height);
+        for (let neighbor of neighbors) {
+            if (visited[neighbor] === 0 || visited[neighbor] === 2) {
+                // This cell has a non-flooded neighbor (either unvisited or barrier)
+                recalculatedBoundary.add(cell);
+                break;
+            }
         }
     }
 
-    debugLog(`Boundary cells: ${filteredBoundary.size} (${((filteredBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
+    debugLog(`Boundary cells: ${recalculatedBoundary.size} (${((recalculatedBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded, barriers, boundary: filteredBoundary };
+    return { flooded, barriers, boundary: recalculatedBoundary };
 }
 
 /**
