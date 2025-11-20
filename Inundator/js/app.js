@@ -27,6 +27,7 @@ export class InundatorApp {
         this.demData = null;
         this.originTileBounds = null; // Track grid origin for negative indices
         this.currentMousePosition = null;
+        this.resumeState = null; // Track flood state for continuation after DEM expansion
 
         // Worker
         this.floodWorker = null;
@@ -309,6 +310,9 @@ export class InundatorApp {
         // Reset downstream rejection counter for new computation
         this.downstreamRejectionCount = 0;
 
+        // Reset resume state for fresh computation
+        this.resumeState = null;
+
         // Calculate crest elevation if not already set
         if (!this.crestElevation) {
             await this.calculateCrestElevation();
@@ -358,15 +362,30 @@ export class InundatorApp {
 
         const effectiveCrest = this.crestElevation * this.waterLevel;
 
-        this.floodWorker.postMessage({
+        // Pass resumeState if available (for continuation after DEM expansion)
+        const message = {
             demData: demData,
             damCells: damCells,
             crestElevation: effectiveCrest
-        });
+        };
+
+        if (this.resumeState) {
+            message.resumeState = this.resumeState;
+            console.log('Passing resume state to worker for continuation');
+        }
+
+        this.floodWorker.postMessage(message);
     }
 
     async handleDEMExpansionRequest(data) {
         console.log(`DEM expansion requested at ${data.currentSize} cells (iteration ${data.iterations})`);
+
+        // Store resume state for continuation after expansion
+        this.resumeState = data.resumeState || null;
+
+        if (this.resumeState) {
+            console.log(`Preserving state: ${this.resumeState.leftSideCells.length} left, ${this.resumeState.rightSideCells.length} right, ${this.resumeState.queueCells.length} queued`);
+        }
 
         // Track downstream rejections and stop if we keep finding only downstream
         if (data.foundDownstream) {

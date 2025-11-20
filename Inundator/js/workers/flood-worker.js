@@ -7,9 +7,10 @@
  * - Seed from middle of dam, flood all cells below (dam level - 1m)
  * - Real-time upstream/downstream partitioning to prune runaway flooding
  * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
+ * - Stateful continuation: preserve flood state across DEM expansions (don't restart!)
  */
 
-const WORKER_VERSION = "2024.11.19.18";
+const WORKER_VERSION = "2024.11.20.stateful";
 
 // Worker configuration
 const CONFIG = {
@@ -59,6 +60,47 @@ function remapBarrierToNewGrid(barrierOffsets, damCells, width, height) {
 }
 
 /**
+ * Remap a cell from old grid to new grid after DEM expansion
+ * Uses logical grid coordinates (can be negative) as intermediate representation
+ */
+function remapCellToNewGrid(oldCell, oldDemData, newDemData) {
+    const { width: oldWidth, minX: oldMinX, minY: oldMinY } = oldDemData;
+    const { width: newWidth, height: newHeight, minX: newMinX, minY: newMinY } = newDemData;
+
+    // Convert old array index to logical grid coordinates
+    const oldArrayX = oldCell % oldWidth;
+    const oldArrayY = Math.floor(oldCell / oldWidth);
+    const gridX = oldArrayX + oldMinX;
+    const gridY = oldArrayY + oldMinY;
+
+    // Convert logical grid coordinates to new array index
+    const newArrayX = gridX - newMinX;
+    const newArrayY = gridY - newMinY;
+
+    // Check if within new bounds
+    if (newArrayX < 0 || newArrayX >= newWidth ||
+        newArrayY < 0 || newArrayY >= newHeight) {
+        return null;  // Outside new grid
+    }
+
+    return newArrayY * newWidth + newArrayX;
+}
+
+/**
+ * Remap a set of cells from old grid to new grid
+ */
+function remapCellSet(oldCells, oldDemData, newDemData) {
+    const newCells = new Set();
+    for (let oldCell of oldCells) {
+        const newCell = remapCellToNewGrid(oldCell, oldDemData, newDemData);
+        if (newCell !== null) {
+            newCells.add(newCell);
+        }
+    }
+    return newCells;
+}
+
+/**
  * Simple queue for breadth-first flood-fill
  * Grows layer by layer, one cell at a time from all sides equally
  */
@@ -93,20 +135,30 @@ class SimpleQueue {
 
 self.addEventListener('message', function (e) {
     try {
-        const { demData, damCells, crestElevation } = e.data;
+        const { demData, damCells, crestElevation, resumeState } = e.data;
 
         self.postMessage({ progress: 0.1 });
 
-        debugLog(`Worker v${WORKER_VERSION}: ${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m`);
+        if (resumeState) {
+            debugLog(`Worker v${WORKER_VERSION}: RESUMING from ${resumeState.iterations} iterations (${demData.width}x${demData.height} grid)`);
+            const result = resumeIncrementalFlood(demData, damCells, crestElevation, resumeState);
 
-        const result = performIncrementalFlood(demData, damCells, crestElevation);
+            if (result !== null) {
+                self.postMessage({
+                    flooded: Array.from(result.flooded),
+                    barriers: Array.from(result.barriers)
+                });
+            }
+        } else {
+            debugLog(`Worker v${WORKER_VERSION}: FRESH START (${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m)`);
+            const result = performIncrementalFlood(demData, damCells, crestElevation);
 
-        // Only send completion if we got actual results (null means expansion requested)
-        if (result !== null) {
-            self.postMessage({
-                flooded: Array.from(result.flooded),
-                barriers: Array.from(result.barriers)
-            });
+            if (result !== null) {
+                self.postMessage({
+                    flooded: Array.from(result.flooded),
+                    barriers: Array.from(result.barriers)
+                });
+            }
         }
     } catch (error) {
         self.postMessage({
@@ -308,12 +360,36 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             if (edgeInfo) {
                 debugLog(`Flooding approaching DEM edge (left: ${leftSide.size}, right: ${rightSide.size}) - requesting expansion`);
 
-                // Always request expansion when approaching edges
+                // Prepare state for resumption after DEM expansion
+                // Extract remaining queue items (from head onwards)
+                const queueCells = queue.items.slice(queue.head);
+
+                const resumeState = {
+                    queueCells: queueCells,
+                    leftSideCells: Array.from(leftSide),
+                    rightSideCells: Array.from(rightSide),
+                    lastLeftSize: lastLeftSize,
+                    lastRightSize: lastRightSize,
+                    leftStagnant: leftStagnant,
+                    rightStagnant: rightStagnant,
+                    iterations: iterations,
+                    oldDemData: {
+                        width: width,
+                        height: height,
+                        minX: demData.minX,
+                        minY: demData.minY
+                    }
+                };
+
+                debugLog(`Saving state: ${queueCells.length} queued, ${leftSide.size} left, ${rightSide.size} right, ${iterations} iterations`);
+
+                // Request expansion with state for continuation
                 self.postMessage({
                     needMoreDEM: true,
                     currentSize: flooded.size,
                     iterations: iterations,
-                    edges: edgeInfo
+                    edges: edgeInfo,
+                    resumeState: resumeState
                 });
                 return null;  // Signal expansion needed
             }
@@ -380,6 +456,245 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     // Select the smaller side as upstream (confined valley)
     // The larger side is downstream (spreading toward ocean)
+    const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
+    const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
+
+    debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
+    debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
+
+    return { flooded: upstream, barriers };
+}
+
+/**
+ * Resume incremental flood from saved state after DEM expansion
+ * This avoids restarting from scratch - just continues where we left off
+ */
+function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) {
+    const { width, height, data } = demData;
+
+    debugLog(`Resuming flood: ${resumeState.leftSideCells.length} left, ${resumeState.rightSideCells.length} right, ${resumeState.queueCells.length} queued`);
+
+    // Get/remap barriers (uses existing cache)
+    const firstCell = damCells[0];
+    const lastCell = damCells[damCells.length - 1];
+    const elev1 = data[firstCell];
+    const elev2 = data[lastCell];
+
+    let barriers, damLevel, maxWaterLevel;
+
+    if (cachedDamGeometry &&
+        Math.abs(cachedDamGeometry.elev1 - elev1) < 0.1 &&
+        Math.abs(cachedDamGeometry.elev2 - elev2) < 0.1) {
+        // Reuse cached geometry
+        damLevel = cachedDamGeometry.damLevel;
+        maxWaterLevel = cachedDamGeometry.maxWaterLevel;
+        barriers = remapBarrierToNewGrid(cachedDamGeometry.barrierOffsets, damCells, width, height);
+        debugLog(`Reusing cached dam geometry: ${barriers.size} barrier cells`);
+    } else {
+        debugLog('ERROR: Dam geometry cache missing on resume - this should not happen');
+        return { flooded: new Set(), barriers: new Set() };
+    }
+
+    // Create visited array and mark barriers
+    const visited = new Uint8Array(width * height);
+    for (let cell of barriers) {
+        visited[cell] = 2; // 2 = barrier
+    }
+
+    // Remap queue cells from old grid to new grid
+    const queue = new SimpleQueue();
+    for (let oldCell of resumeState.queueCells) {
+        const newCell = remapCellToNewGrid(oldCell, resumeState.oldDemData, demData);
+        if (newCell !== null && visited[newCell] === 0) {
+            queue.push(newCell);
+            visited[newCell] = 1;
+        }
+    }
+
+    // Remap left side cells
+    const leftSide = new Set();
+    for (let oldCell of resumeState.leftSideCells) {
+        const newCell = remapCellToNewGrid(oldCell, resumeState.oldDemData, demData);
+        if (newCell !== null) {
+            leftSide.add(newCell);
+            visited[newCell] = 1;
+        }
+    }
+
+    // Remap right side cells
+    const rightSide = new Set();
+    for (let oldCell of resumeState.rightSideCells) {
+        const newCell = remapCellToNewGrid(oldCell, resumeState.oldDemData, demData);
+        if (newCell !== null) {
+            rightSide.add(newCell);
+            visited[newCell] = 1;
+        }
+    }
+
+    debugLog(`Remapped state: queue=${queue.length}, left=${leftSide.size}, right=${rightSide.size}`);
+
+    // Restore growth tracking
+    let lastLeftSize = resumeState.lastLeftSize;
+    let lastRightSize = resumeState.lastRightSize;
+    let leftStagnant = resumeState.leftStagnant;
+    let rightStagnant = resumeState.rightStagnant;
+    let iterations = resumeState.iterations;
+
+    // Calculate dam vector for partitioning (same as fresh start)
+    const firstDamCell = damCells[0];
+    const lastDamCell = damCells[damCells.length - 1];
+    const damX1 = firstDamCell % width;
+    const damY1 = Math.floor(firstDamCell / width);
+    const damX2 = lastDamCell % width;
+    const damY2 = Math.floor(lastDamCell / width);
+    const damVectorX = damX2 - damX1;
+    const damVectorY = damY2 - damY1;
+
+    debugLog(`Continuing flood from iteration ${iterations} with ${queue.length} cells in queue`);
+
+    // Continue the flood loop (identical to performIncrementalFlood)
+    while (queue.length > 0 && iterations < CONFIG.maxIterations) {
+        iterations++;
+
+        if (iterations % CONFIG.progressUpdateInterval === 0) {
+            const totalCells = leftSide.size + rightSide.size;
+            debugLog(`Iteration ${iterations}, queue: ${queue.length}, left: ${leftSide.size}, right: ${rightSide.size}`);
+            self.postMessage({
+                progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
+                status: `Flooding: ${totalCells.toLocaleString()} cells (${iterations.toLocaleString()} iterations)`
+            });
+        }
+
+        // Check each side's growth separately to detect confined upstream vs runaway downstream
+        if (iterations % CONFIG.layerCheckInterval === 0) {
+            const leftGrowth = leftSide.size - lastLeftSize;
+            const rightGrowth = rightSide.size - lastRightSize;
+            const leftGrowing = leftGrowth > 0;
+            const rightGrowing = rightGrowth > 0;
+
+            const leftGrowthRate = lastLeftSize > 0 ? leftGrowth / lastLeftSize : 0;
+            const rightGrowthRate = lastRightSize > 0 ? rightGrowth / lastRightSize : 0;
+
+            const leftEffectivelyStagnant = !leftGrowing ||
+                (rightGrowing && rightGrowth > leftGrowth * 10 && rightSide.size > leftSide.size * 5);
+            const rightEffectivelyStagnant = !rightGrowing ||
+                (leftGrowing && leftGrowth > rightGrowth * 10 && leftSide.size > rightSide.size * 5);
+
+            if (leftEffectivelyStagnant) leftStagnant++;
+            else leftStagnant = 0;
+
+            if (rightEffectivelyStagnant) rightStagnant++;
+            else rightStagnant = 0;
+
+            // Debug growth rates
+            if (debugMessageCount < CONFIG.maxDebugMessages && iterations % (CONFIG.layerCheckInterval * 10) === 0) {
+                debugLog(`Growth check: left +${leftGrowth} (${(leftGrowthRate*100).toFixed(2)}%), right +${rightGrowth} (${(rightGrowthRate*100).toFixed(2)}%), left stagnant: ${leftStagnant}, right stagnant: ${rightStagnant}`);
+            }
+
+            // If one side is stagnant (confined) and other is still growing (runaway), select stagnant side
+            if (leftStagnant >= 3 && rightGrowing) {
+                debugLog(`Left side stagnant (growth: ${leftGrowth}, ${(leftGrowthRate*100).toFixed(1)}%) vs right growing (${rightGrowth}, ${(rightGrowthRate*100).toFixed(1)}%) - selecting left as upstream`);
+                return { flooded: leftSide, barriers };
+            }
+            if (rightStagnant >= 3 && leftGrowing) {
+                debugLog(`Right side stagnant (growth: ${rightGrowth}, ${(rightGrowthRate*100).toFixed(1)}%) vs left growing (${leftGrowth}, ${(leftGrowthRate*100).toFixed(1)}%) - selecting right as upstream`);
+                return { flooded: rightSide, barriers };
+            }
+
+            // If both sides are stagnant, return smaller side
+            if (leftStagnant >= 3 && rightStagnant >= 3) {
+                const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
+                debugLog(`Both sides stagnant - selecting smaller side (${upstream.size} cells) as upstream`);
+                return { flooded: upstream, barriers };
+            }
+
+            lastLeftSize = leftSide.size;
+            lastRightSize = rightSide.size;
+
+            // Check if approaching edge - request expansion if needed
+            const flooded = new Set([...leftSide, ...rightSide]);
+            const edgeInfo = isApproachingEdge(flooded, width, height);
+            if (edgeInfo) {
+                debugLog(`Flooding approaching DEM edge again (left: ${leftSide.size}, right: ${rightSide.size}) - requesting expansion`);
+
+                // Prepare state for another resumption
+                const queueCells = queue.items.slice(queue.head);
+
+                const newResumeState = {
+                    queueCells: queueCells,
+                    leftSideCells: Array.from(leftSide),
+                    rightSideCells: Array.from(rightSide),
+                    lastLeftSize: lastLeftSize,
+                    lastRightSize: lastRightSize,
+                    leftStagnant: leftStagnant,
+                    rightStagnant: rightStagnant,
+                    iterations: iterations,
+                    oldDemData: {
+                        width: width,
+                        height: height,
+                        minX: demData.minX,
+                        minY: demData.minY
+                    }
+                };
+
+                debugLog(`Saving state again: ${queueCells.length} queued, ${leftSide.size} left, ${rightSide.size} right, ${iterations} iterations`);
+
+                self.postMessage({
+                    needMoreDEM: true,
+                    currentSize: flooded.size,
+                    iterations: iterations,
+                    edges: edgeInfo,
+                    resumeState: newResumeState
+                });
+                return null;  // Signal expansion needed
+            }
+        }
+
+        const cell = queue.shift();
+
+        // Get neighbors
+        const neighbors = getNeighbors(cell, width, height);
+
+        for (let neighbor of neighbors) {
+            // Skip if already processed or is a barrier
+            if (visited[neighbor] !== 0) continue;
+
+            const neighborElev = data[neighbor];
+
+            // Skip no-data cells
+            if (neighborElev <= CONFIG.noDataValue) continue;
+
+            // Flood all contiguous cells below the fixed water level
+            if (neighborElev < maxWaterLevel) {
+                visited[neighbor] = 1;
+
+                // Partition this cell by which side of dam it's on
+                const x = neighbor % width;
+                const y = Math.floor(neighbor / width);
+                const toCellX = x - damX1;
+                const toCellY = y - damY1;
+                const crossProduct = damVectorX * toCellY - damVectorY * toCellX;
+
+                if (crossProduct > 0) {
+                    leftSide.add(neighbor);
+                } else if (crossProduct < 0) {
+                    rightSide.add(neighbor);
+                }
+
+                queue.push(neighbor);
+            }
+        }
+    }
+
+    const totalCells = leftSide.size + rightSide.size;
+
+    if (iterations >= CONFIG.maxIterations) {
+        debugLog(`WARNING: Reached iteration limit - left: ${leftSide.size}, right: ${rightSide.size}`);
+    }
+
+    debugLog(`Resumed flooding complete - left: ${leftSide.size}, right: ${rightSide.size}`);
+
+    // Select the smaller side as upstream (confined valley)
     const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
     const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
 
