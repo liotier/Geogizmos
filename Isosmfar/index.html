@@ -907,24 +907,47 @@
 
         /**
          * Creates a throttled function that only invokes func at most once per every wait milliseconds
+         * Returns a function with a cancel() method to clear any pending execution
          */
         function throttle(func, wait) {
-            let inThrottle, lastFn, lastTime;
-            return function(...args) {
-                if (!inThrottle) {
-                    func.apply(this, args);
-                    lastTime = Date.now();
-                    inThrottle = true;
+            let timeoutId = null;
+            let lastRan = 0;
+
+            const throttled = function(...args) {
+                const context = this;
+                const now = Date.now();
+
+                if (!lastRan) {
+                    // First call - execute immediately
+                    func.apply(context, args);
+                    lastRan = now;
                 } else {
-                    clearTimeout(lastFn);
-                    lastFn = setTimeout(() => {
-                        if (Date.now() - lastTime >= wait) {
-                            func.apply(this, args);
-                            lastTime = Date.now();
+                    // Clear any pending execution
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                    }
+
+                    // Schedule next execution
+                    timeoutId = setTimeout(() => {
+                        if (now - lastRan >= wait) {
+                            func.apply(context, args);
+                            lastRan = Date.now();
                         }
-                    }, Math.max(wait - (Date.now() - lastTime), 0));
+                        timeoutId = null;
+                    }, wait - (now - lastRan));
                 }
             };
+
+            // Add cancel method to clear pending execution
+            throttled.cancel = function() {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+                lastRan = 0; // Reset for next drag operation
+            };
+
+            return throttled;
         }
 
         /**
@@ -1679,7 +1702,12 @@
 
                 document.addEventListener('mouseup', () => {
                     if (this.draggingCursor) {
-                        // Final save when drag ends
+                        // Cancel any pending throttled updates
+                        throttledUpdate.cancel();
+                        throttledSaveState.cancel();
+
+                        // Perform final update and save immediately
+                        this.updateVisualization();
                         this.saveState();
                     }
                     this.draggingCursor = null;
