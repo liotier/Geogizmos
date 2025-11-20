@@ -74,9 +74,12 @@ The flood algorithm runs in a Web Worker (separate thread) to keep the UI respon
    - Finds seeds on both sides of the dam
 
 3. **Partitioning Setup**:
-   - Calculates perpendicular vector to dam line
-   - Uses cross product to partition all flooded cells into "left" and "right" sides
-   - This allows detection of which side is confined (upstream) vs runaway (downstream)
+   - Calculates dam vector from first to last endpoint
+   - Uses cross product to partition flooded cells into three categories:
+     - Left side (cross product > 0)
+     - Right side (cross product < 0)
+     - On the perpendicular line (cross product = 0, not assigned to either side)
+   - This ternary classification enables detection of which side is confined (upstream) vs runaway (downstream)
 
 **Phase 2: Flood Fill**
 
@@ -100,7 +103,7 @@ while queue not empty and iterations < limit:
     every 50k iterations:
         check if approaching DEM edge → request expansion if needed
         check growth rates → detect stagnation (see below)
-        check total area → abort if exceeds 500 km² safety limit
+        check total area → abort if exceeds 1000 km² safety limit
 ```
 
 **Phase 3: Stagnation Detection**
@@ -151,7 +154,8 @@ The algorithm correctly handles:
 - **Natural barriers**: Ridges, hills, saddles within the flood zone
 - **V-shaped valleys**: Detects when both sides are legitimate upstream
 - **Curved valleys**: Conservative stagnation thresholds prevent premature stopping
-- **Massive lakes**: Safety limit (500 km²) prevents runaway computation
+- **Massive lakes**: Safety limit (1000 km²) prevents runaway computation
+- **Ternary partition edge case**: Cells exactly on perpendicular (cross product = 0) handled correctly
 - **Edge cases**: DEM expansion preserves exact state across grid size changes
 
 ## Design Decisions
@@ -184,22 +188,29 @@ The algorithm uses a constant water level (dam crest - 1m) rather than simulatin
 
 **Limitation**: Cannot simulate intermediate fill levels or filling dynamics. The tool shows maximum capacity only.
 
-### Why Partition by Dam Perpendicular?
+### Why Ternary Partition Using Cross Product?
 
-The algorithm partitions all flooded cells into left/right sides using cross product with dam vector:
+The algorithm uses cross product to partition flooded cells into three categories:
 
-**Purpose**: Distinguish upstream reservoir from downstream river
+**The three categories**:
+1. **Left side**: cross product > 0
+2. **Right side**: cross product < 0
+3. **On perpendicular line**: cross product = 0 (cells exactly on the line perpendicular to dam, not assigned to either side)
 
-**Alternatives considered**:
+**Purpose**: Distinguish upstream reservoir from downstream river in real-time
+
+**Why cross product**:
+- **Works for any dam orientation**: Automatically adjusts to dam angle
+- **Real-time classification**: Cells classified as flooded, no post-processing
+- **Enables stagnation detection**: Track growth of each side independently
+- **Mathematically precise**: Perpendicular line defined by geometry, not heuristics
+
+**Alternatives considered and rejected**:
 1. **Connected component analysis after flooding**: Would flood entire river system first, wasting computation
 2. **Elevation-based heuristics**: Fails for dams in valleys with gentle downstream slopes
 3. **Distance from dam**: Fails for curved valleys where upstream bends back
 
-**Advantages of perpendicular partition**:
-- **Works for any dam orientation**: Math automatically adjusts to dam angle
-- **Real-time classification**: Cells classified as they're flooded
-- **Enables stagnation detection**: Can track growth of each side independently
-- **Handles V-shaped valleys**: When both sides confined, size ratio test identifies this case
+**Handling the ternary case**: Cells with cross product = 0 (exactly on the perpendicular line) are still flooded but not counted toward left or right growth statistics. In practice, this is rare due to discrete grid.
 
 ### Why Stagnation Detection?
 
@@ -216,16 +227,19 @@ Without upstream/downstream detection, the algorithm would flood until hitting o
 
 ### Why V-Shaped Valley Detection?
 
-In some valleys, both sides are legitimate upstream (valley forks into two arms):
+In some valleys, both sides of the ternary partition are legitimate upstream (valley forks into two arms):
 
-**Detection**: If left/right size ratio < 4x, consider both sides upstream
+**Detection**: If the size ratio between larger and smaller side < 4x, consider both sides upstream
 
 **Rationale**:
-- True downstream runaway would be orders of magnitude larger
-- 4x threshold allows for some asymmetry in valley arms
+- True downstream runaway would be orders of magnitude larger (10x-100x+)
+- 4x threshold allows for realistic asymmetry in valley arms
 - Conservative: Better to include both arms than incorrectly reject one
+- Ternary classification treats middle cells (cross product = 0) as neither side
 
-**Example**: Dam across valley that splits into two tributary canyons. Both should be included in reservoir.
+**Example**: Dam across valley that splits into two tributary canyons. Both arms should be included in reservoir, even if one is somewhat larger.
+
+**Implementation**: When neither side triggers stagnation detection and both sides are similar in size, combine them: `flooded = new Set([...leftSide, ...rightSide])`
 
 ### Why Revert Boundary-Only Polygon Optimization?
 
@@ -234,17 +248,18 @@ An earlier optimization (commit 631e4ca) attempted to process only boundary cell
 **Why it was removed**:
 1. **Reliability over performance**: Multiple test failures with "0 boundary cells"
 2. **Inherent complexity**: Boundary cells accumulated during flood fill were biased toward recently growing areas
-3. **Stagnation conflict**: When stagnation detection selected non-growing side as upstream, boundary cells from growing side had no overlap
-4. **Multiple failed fixes**: Three attempts to fix (filtering, recalculation) added complexity without guaranteeing reliability
-5. **Maintenance burden**: Future changes to flood algorithm could easily break boundary tracking again
+3. **Stagnation conflict**: When stagnation detection selected non-growing side (e.g., left) as upstream, boundary cells from growing side (right) had no overlap
+4. **Ternary partition complication**: Middle cells (cross product = 0) made boundary tracking even more complex
+5. **Multiple failed fixes**: Three attempts to fix (filtering, recalculation) added complexity without guaranteeing reliability
+6. **Maintenance burden**: Future changes to flood algorithm or ternary classification could easily break boundary tracking
 
-**Current approach**: Process all flooded cells for polygon generation. Slower but reliable.
+**Current approach**: Process all flooded cells for polygon generation using marching squares. Slower but reliable and correct.
 
-**Performance impact**: For typical reservoirs (50k-500k cells), polygon generation still completes in 1-3 seconds. The reliability gain is worth the performance cost.
+**Performance impact**: For typical reservoirs (50k-500k cells), polygon generation completes in 1-3 seconds. The reliability gain justifies the performance cost.
 
-### Why 500 km² Area Safety Limit?
+### Why 1000 km² Area Safety Limit?
 
-The algorithm aborts if flooded area exceeds 500 km²:
+The algorithm aborts if flooded area exceeds 1000 km²:
 
 **Purpose**: Prevent runaway computation from user error (dam placed in wrong location)
 
@@ -258,7 +273,9 @@ The algorithm aborts if flooded area exceeds 500 km²:
 2. Place dam in narrower section of valley
 3. If genuinely modeling a massive reservoir, increase limit in config.js
 
-**Configurable**: Can be adjusted in `config.js` for specialized use cases
+**Why 1000 km²**: Generous limit that accommodates very large valley reservoirs while still preventing pathological cases. For reference, Lake Mead is ~640 km² at full capacity.
+
+**Configurable**: Can be adjusted in `config.js` (`maxReservoirAreaKm2`) for specialized use cases
 
 ### Why Web Worker Architecture?
 
@@ -315,7 +332,7 @@ The application automatically:
 
 ### Running Locally
 
-The application uses ES6 modules, which require a web server:
+The application uses ES6 modules. While modern browsers can load modules from `file://` URLs, using a local web server is recommended for full functionality:
 
 ```bash
 # Python 3
@@ -329,6 +346,8 @@ php -S localhost:8000
 ```
 
 Then open http://localhost:8000/Inundator/
+
+Alternatively, you can open `index.html` directly in a modern browser - ES6 modules should work, though some features may behave differently.
 
 ### Deployment
 
@@ -372,7 +391,8 @@ The current implementation prioritizes reliability and simplicity over raw speed
 - Small reservoir (~1 km², ~5-10k cells): < 1 second
 - Medium reservoir (~10 km², ~50-100k cells): 1-3 seconds
 - Large reservoir (~100 km², ~500k-1M cells): 5-15 seconds
-- Massive valley lake (~500 km², ~2M cells): 15-60 seconds with multiple expansions
+- Very large valley lake (~500 km², ~2M cells): 15-60 seconds with multiple expansions
+- Massive reservoir (approaching 1000 km² limit): 30-120 seconds with multiple expansions
 
 **Performance characteristics**:
 - Flood fill is O(n) where n = number of flooded cells
@@ -406,13 +426,14 @@ All dependencies are loaded from CDN.
 
 ## Capabilities
 
-- **Maximum Reservoir Area**: 500 km² (safety limit, configurable in config.js)
+- **Maximum Reservoir Area**: 1000 km² (safety limit, configurable in config.js)
 - **Maximum Flooded Cells**: Up to 20 million iterations (configurable)
 - **DEM Coverage**: 10km initial radius, auto-expands to 100km if needed
 - **DEM Grid Size**: Up to 100 million cells (10,000×10,000 at maximum expansion)
 - **Tile Capacity**: Up to 40×40 tiles (1,600 tiles) per computation
 - **Parallel Tile Fetching**: 8 concurrent requests for faster DEM loading
 - **Expansion Strategy**: Doubles buffer radius on each expansion (10→20→40→80km)
+- **Partition Accuracy**: Ternary classification using cross product (left/right/perpendicular)
 
 ## Known Limitations
 
@@ -421,26 +442,6 @@ All dependencies are loaded from CDN.
 - **No Temporal Variation**: Single snapshot, not time-series
 - **Edge Cases**: Very narrow gorges or highly complex multi-basin topography may require parameter tuning
 - **Tile Server Load**: Very large expansions (>80km) may take time to fetch all tiles
-
-## Future Enhancements
-
-### Potential Features
-
-1. **Multiple Dams**: Support cascading reservoirs in a watershed
-2. **Elevation Profile**: Cross-section view showing reservoir depth
-3. **3D Visualization**: Terrain rendering with water surface
-4. **Scenario Comparison**: Overlay multiple dam heights or locations
-5. **Sedimentation Modeling**: Estimate capacity loss over time
-6. **Flood Risk Analysis**: Downstream inundation from dam failure scenarios
-7. **Optimization Tool**: Suggest optimal dam placement for storage or power generation
-
-### Technical Improvements
-
-1. **TypeScript**: Add type safety and better IDE support
-2. **Unit Tests**: Automated testing for core modules
-3. **Custom DEM Sources**: Support user-uploaded elevation data
-4. **Offline Support**: Service worker for offline operation
-5. **WebAssembly**: Port critical algorithms for better performance
 
 ## Support
 
@@ -458,8 +459,4 @@ For issues or questions:
 
 ## License
 
-This is an open-source educational/research tool. See the main repository LICENSE file.
-
-## Credits
-
-Developed as an experimental tool for reservoir simulation and hydrological analysis.
+This project is released into the public domain under the [Unlicense](https://unlicense.org/).

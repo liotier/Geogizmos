@@ -46,7 +46,7 @@ export const CONFIG = {
         maxIterations: 20000000,
 
         // Maximum reasonable reservoir area (km²) - safety limit
-        maxReservoirAreaKm2: 500,
+        maxReservoirAreaKm2: 1000,
 
         // Seed search radius (cells from dam)
         seedSearchRadius: 2,
