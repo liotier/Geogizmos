@@ -1386,7 +1386,7 @@
                 const idwPowerSlider = document.getElementById('idw-power-slider');
                 
                 idwPowerCursor.addEventListener('mousedown', (e) => {
-                    this.startSliderDrag({ cursor: idwPowerCursor, slider: idwPowerSlider, type: 'idw-power' });
+                    this.draggingCursor = { cursor: idwPowerCursor, slider: idwPowerSlider, type: 'idw-power' };
                     e.preventDefault();
                 });
 
@@ -1395,7 +1395,7 @@
                 const heatBandwidthSlider = document.getElementById('heat-bandwidth-slider');
 
                 heatBandwidthCursor.addEventListener('mousedown', (e) => {
-                    this.startSliderDrag({ cursor: heatBandwidthCursor, slider: heatBandwidthSlider, type: 'heat-bandwidth' });
+                    this.draggingCursor = { cursor: heatBandwidthCursor, slider: heatBandwidthSlider, type: 'heat-bandwidth' };
                     e.preventDefault();
                 });
             }
@@ -1422,7 +1422,7 @@
                 const coalesceSlider = document.getElementById('coalesce-slider');
                 
                 coalesceCursor.addEventListener('mousedown', (e) => {
-                    this.startSliderDrag({ cursor: coalesceCursor, slider: coalesceSlider, type: 'coalesce' });
+                    this.draggingCursor = { cursor: coalesceCursor, slider: coalesceSlider, type: 'coalesce' };
                     e.preventDefault();
                 });
             }
@@ -1626,40 +1626,19 @@
                 }
             }
 
-            /**
-             * Start dragging a slider, canceling any pending updates from previous drag
-             * @param {Object} cursorInfo - Object containing cursor, slider, and type
-             */
-            startSliderDrag(cursorInfo) {
-                // Cancel any pending throttled updates from previous slider
-                if (this.throttledUpdate) {
-                    this.throttledUpdate.cancel();
-                }
-                if (this.throttledSaveState) {
-                    this.throttledSaveState.cancel();
-                }
-
-                // Set new dragging cursor
-                this.draggingCursor = cursorInfo;
-            }
-
             initSliderControls() {
                 const distanceCursor = document.getElementById('distance-cursor');
                 const distanceSlider = document.getElementById('distance-slider');
                 const transparencyCursor = document.getElementById('transparency-cursor');
                 const transparencySlider = document.getElementById('transparency-slider');
 
-                // Create throttled versions as instance properties for access across all sliders
-                this.throttledUpdate = throttle(() => this.updateVisualization(), CONFIG.SLIDER_THROTTLE_MS);
-                this.throttledSaveState = throttle(() => this.saveState(), 500);
-
                 distanceCursor.addEventListener('mousedown', (e) => {
-                    this.startSliderDrag({ cursor: distanceCursor, slider: distanceSlider, type: 'distance' });
+                    this.draggingCursor = { cursor: distanceCursor, slider: distanceSlider, type: 'distance' };
                     e.preventDefault();
                 });
 
                 transparencyCursor.addEventListener('mousedown', (e) => {
-                    this.startSliderDrag({ cursor: transparencyCursor, slider: transparencySlider, type: 'transparency' });
+                    this.draggingCursor = { cursor: transparencyCursor, slider: transparencySlider, type: 'transparency' };
                     e.preventDefault();
                 });
 
@@ -1685,13 +1664,11 @@
                             this.maxDistanceKm = Math.round(this.maxDistanceKm);
                         }
                         this.updateSliderValues();
-                        this.throttledUpdate();
-                        this.throttledSaveState();
+                        this.updateVisualization();
                     } else if (this.draggingCursor.type === 'transparency') {
                         this.transparency = percent / 100;
                         this.updateSliderValues();
-                        this.throttledUpdate();
-                        this.throttledSaveState();
+                        this.updateVisualization();
                     } else if (this.draggingCursor.type === 'coalesce') {
                         // Exponential scale from 0 to max configured
                         if (percent === 0) {
@@ -1709,32 +1686,24 @@
                         }
                         this.updateCoalesceValue();
                         this.debouncedVoronoiUpdate();
-                        this.throttledSaveState();
                     } else if (this.draggingCursor.type === 'idw-power') {
                         // Linear scale from 1.0 to 5.0
                         this.idwPower = 1.0 + (percent / 100) * 4.0;
                         this.idwPower = Math.round(this.idwPower * 10) / 10;
                         document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
-                        this.throttledUpdate();
-                        this.throttledSaveState();
+                        this.updateVisualization();
                     } else if (this.draggingCursor.type === 'heat-bandwidth') {
                         // Linear scale from 0.1 to 1.0 (10% to 100%)
                         this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
                         this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
                         document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
-                        this.throttledUpdate();
-                        this.throttledSaveState();
+                        this.updateVisualization();
                     }
                 });
 
                 document.addEventListener('mouseup', () => {
                     if (this.draggingCursor) {
-                        // Cancel any pending throttled updates
-                        this.throttledUpdate.cancel();
-                        this.throttledSaveState.cancel();
-
-                        // Perform final update and save immediately
-                        this.updateVisualization();
+                        // Save state when drag ends
                         this.saveState();
                     }
                     this.draggingCursor = null;
