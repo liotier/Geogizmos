@@ -541,9 +541,18 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     }
 
     debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
-    debugLog(`Boundary cells: ${boundaryCells.size} (${((boundaryCells.size / flooded.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded, barriers, boundary: boundaryCells };
+    // Filter boundary cells to only include those in the selected flooded region
+    const filteredBoundary = new Set();
+    for (let cell of boundaryCells) {
+        if (flooded.has(cell)) {
+            filteredBoundary.add(cell);
+        }
+    }
+
+    debugLog(`Boundary cells: ${filteredBoundary.size} (${((filteredBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
+
+    return { flooded, barriers, boundary: filteredBoundary };
 }
 
 /**
@@ -832,9 +841,18 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     }
 
     debugLog(`Final reservoir: ${flooded.size} cells from ${selectedName}`);
-    debugLog(`Boundary cells: ${boundaryCells.size} (${((boundaryCells.size / flooded.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded, barriers, boundary: boundaryCells };
+    // Filter boundary cells to only include those in the selected flooded region
+    const filteredBoundary = new Set();
+    for (let cell of boundaryCells) {
+        if (flooded.has(cell)) {
+            filteredBoundary.add(cell);
+        }
+    }
+
+    debugLog(`Boundary cells: ${filteredBoundary.size} (${((filteredBoundary.size / flooded.size) * 100).toFixed(1)}% of total)`);
+
+    return { flooded, barriers, boundary: filteredBoundary };
 }
 
 /**
