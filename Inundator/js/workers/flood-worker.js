@@ -9,7 +9,7 @@
  * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
  */
 
-const WORKER_VERSION = "2024.11.19.16";
+const WORKER_VERSION = "2024.11.19.17";
 
 // Worker configuration
 const CONFIG = {
@@ -256,15 +256,16 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Detect stagnation: confined valley vs runaway downstream
             // A side is effectively stagnant (confined) if:
             // 1. It's not growing at all, OR
-            // 2. It's growing much slower AND other side is much larger (confined vs spreading)
+            // 2. The other side is running away (much larger AND growing much faster)
             const leftGrowthRate = lastLeftSize > 0 ? leftGrowth / lastLeftSize : 0;
             const rightGrowthRate = lastRightSize > 0 ? rightGrowth / lastRightSize : 0;
 
-            // If one side is 2x larger AND growing 3x faster (in absolute cells), it's running away
+            // Very conservative threshold: only stop if one side is massively larger and faster
+            // This prevents stopping when valley curves and both "sides" are part of upstream
             const leftEffectivelyStagnant = !leftGrowing ||
-                (rightGrowing && rightGrowth > leftGrowth * 3 && rightSide.size > leftSide.size * 2);
+                (rightGrowing && rightGrowth > leftGrowth * 10 && rightSide.size > leftSide.size * 5);
             const rightEffectivelyStagnant = !rightGrowing ||
-                (leftGrowing && leftGrowth > rightGrowth * 3 && leftSide.size > rightSide.size * 2);
+                (leftGrowing && leftGrowth > rightGrowth * 10 && leftSide.size > rightSide.size * 5);
 
             if (leftEffectivelyStagnant) leftStagnant++;
             else leftStagnant = 0;
@@ -315,20 +316,19 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             }
         }
 
-        // Send incremental visualization updates
-        // For now, visualize only the smaller (likely upstream) side to reduce clutter
-        const totalCells = leftSide.size + rightSide.size;
-        if (totalCells - lastVisualizationUpdate >= visualizationUpdateInterval) {
-            lastVisualizationUpdate = totalCells;
-            const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
-            self.postMessage({
-                incrementalUpdate: true,
-                flooded: Array.from(upstream),
-                cellCount: upstream.size,
-                leftSize: leftSide.size,
-                rightSize: rightSide.size
-            });
-        }
+        // Incremental visualization disabled - too fast now, only show final result
+        // const totalCells = leftSide.size + rightSide.size;
+        // if (totalCells - lastVisualizationUpdate >= visualizationUpdateInterval) {
+        //     lastVisualizationUpdate = totalCells;
+        //     const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
+        //     self.postMessage({
+        //         incrementalUpdate: true,
+        //         flooded: Array.from(upstream),
+        //         cellCount: upstream.size,
+        //         leftSize: leftSide.size,
+        //         rightSize: rightSide.size
+        //     });
+        // }
 
         const cell = queue.shift();
 
