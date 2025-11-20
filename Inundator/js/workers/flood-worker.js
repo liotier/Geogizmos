@@ -9,7 +9,7 @@
  * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
  */
 
-const WORKER_VERSION = "2024.11.19.13";
+const WORKER_VERSION = "2024.11.19.14";
 
 // Worker configuration
 const CONFIG = {
@@ -99,11 +99,14 @@ self.addEventListener('message', function (e) {
 
         debugLog(`Worker v${WORKER_VERSION}: ${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m`);
 
-        const flooded = performIncrementalFlood(demData, damCells, crestElevation);
+        const result = performIncrementalFlood(demData, damCells, crestElevation);
 
         // Only send completion if we got actual results (null means expansion requested)
-        if (flooded !== null) {
-            self.postMessage({ flooded: Array.from(flooded) });
+        if (result !== null) {
+            self.postMessage({
+                flooded: Array.from(result.flooded),
+                barriers: Array.from(result.barriers)
+            });
         }
     } catch (error) {
         self.postMessage({
@@ -186,7 +189,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     if (seeds.length === 0) {
         debugLog('ERROR: No seed cells found');
-        return new Set();
+        return { flooded: new Set(), barriers };
     }
 
     debugLog(`Starting from ${seeds.length} seed cells at valley floor`);
@@ -258,18 +261,18 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // select the stagnant side as upstream reservoir and stop
             if (leftStagnant >= 3 && rightGrowing) {
                 debugLog(`Left side stagnant at ${leftSide.size} cells, right growing to ${rightSide.size} - selecting left as upstream`);
-                return leftSide;
+                return { flooded: leftSide, barriers };
             }
             if (rightStagnant >= 3 && leftGrowing) {
                 debugLog(`Right side stagnant at ${rightSide.size} cells, left growing to ${leftSide.size} - selecting right as upstream`);
-                return rightSide;
+                return { flooded: rightSide, barriers };
             }
 
             // If both sides are stagnant, we're done - return the smaller (upstream) side
             if (leftStagnant >= 3 && rightStagnant >= 3) {
                 const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
                 debugLog(`Both sides stagnant - selecting smaller side (${upstream.size} cells) as upstream`);
-                return upstream;
+                return { flooded: upstream, barriers };
             }
 
             lastLeftSize = leftSide.size;
@@ -360,7 +363,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
     debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
 
-    return upstream;
+    return { flooded: upstream, barriers };
 }
 
 /**
