@@ -21,7 +21,9 @@ const CONFIG = {
     noDataValue: -9999,
     safetyMargin: 1.0,        // Meters below dam crest to stop flooding
     minReservoirSize: 10,     // Minimum cells to be considered valid reservoir
-    layerCheckInterval: 5000  // Check for stagnation every N cells
+    layerCheckInterval: 5000,  // Check for stagnation every N cells
+    maxReservoirAreaKm2: 500,  // Maximum reasonable reservoir area (safety limit)
+    areaSizeCheckInterval: 50000  // Check reservoir size every N iterations
 };
 
 // Cached dam geometry - calculated ONCE at start, reused on DEM expansions
@@ -34,6 +36,41 @@ function debugLog(msg) {
         debugMessageCount++;
         self.postMessage({ debug: msg });
     }
+}
+
+/**
+ * Calculate cell area in m² for a given DEM grid
+ * Accounts for latitude (Mercator projection distortion)
+ */
+function calculateCellArea(demData, damCells) {
+    const { width, height, zoom, tileBounds } = demData;
+
+    // Get approximate latitude from dam center for area calculation
+    const middleDamCell = damCells[Math.floor(damCells.length / 2)];
+    const gridX = middleDamCell % width;
+    const gridY = Math.floor(middleDamCell / width);
+
+    // Convert grid to tile coordinates
+    const [tileWest, tileNorth] = tileBounds;
+    const tileSize = 256;
+    const tileX = tileWest + (gridX + demData.minX) / tileSize;
+    const tileY = tileNorth + (gridY + demData.minY) / tileSize;
+
+    // Convert tile to lat/lng
+    const n = Math.pow(2, zoom);
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
+
+    // Calculate cell size in meters at this latitude
+    // Earth circumference at equator: 40,075,017 m
+    const earthCircumference = 40075017;
+    const metersPerTile = earthCircumference / n;
+    const metersPerPixel = metersPerTile / tileSize;
+
+    // Adjust for latitude (Mercator distortion)
+    const latRadians = lat * Math.PI / 180;
+    const adjustedMetersPerPixel = metersPerPixel * Math.cos(latRadians);
+
+    return adjustedMetersPerPixel * adjustedMetersPerPixel; // m² per cell
 }
 
 /**
@@ -305,6 +342,19 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
+
+            // Check if reservoir area exceeds reasonable limits (safety check for flat terrain)
+            const cellAreaM2 = calculateCellArea(demData, damCells);
+            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
+            if (currentAreaKm2 > CONFIG.maxReservoirAreaKm2) {
+                debugLog(`Reservoir area (${currentAreaKm2.toFixed(1)} km²) exceeds maximum (${CONFIG.maxReservoirAreaKm2} km²) - stopping`);
+                self.postMessage({
+                    error: `Reservoir area exceeded ${CONFIG.maxReservoirAreaKm2} km² - this indicates very flat terrain or incorrect dam placement. ` +
+                           `The flood has been stopped at ${currentAreaKm2.toFixed(1)} km² to prevent runaway computation. ` +
+                           `Consider using a higher dam crest elevation or placing the dam in a more confined valley.`
+                });
+                return null;
+            }
         }
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
@@ -601,6 +651,19 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
+
+            // Check if reservoir area exceeds reasonable limits (safety check for flat terrain)
+            const cellAreaM2 = calculateCellArea(demData, damCells);
+            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
+            if (currentAreaKm2 > CONFIG.maxReservoirAreaKm2) {
+                debugLog(`Reservoir area (${currentAreaKm2.toFixed(1)} km²) exceeds maximum (${CONFIG.maxReservoirAreaKm2} km²) - stopping`);
+                self.postMessage({
+                    error: `Reservoir area exceeded ${CONFIG.maxReservoirAreaKm2} km² - this indicates very flat terrain or incorrect dam placement. ` +
+                           `The flood has been stopped at ${currentAreaKm2.toFixed(1)} km² to prevent runaway computation. ` +
+                           `Consider using a higher dam crest elevation or placing the dam in a more confined valley.`
+                });
+                return null;
+            }
         }
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
