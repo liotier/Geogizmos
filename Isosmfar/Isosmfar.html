@@ -1005,15 +1005,15 @@
              * Decodes visualization state from URL hash
              */
             decode() {
-                const hash = window.location.hash.slice(1);
+                const hash = globalThis.location.hash.slice(1);
                 if (!hash) return {};
 
                 const params = new URLSearchParams(hash);
                 const state = {};
                 for (const [key, value] of params.entries()) {
                     // Try to parse numbers
-                    if (!isNaN(value) && value !== '') {
-                        state[key] = parseFloat(value);
+                    if (!Number.isNaN(Number(value)) && value !== '') {
+                        state[key] = Number.parseFloat(value);
                     } else if (value === 'true' || value === 'false') {
                         state[key] = value === 'true';
                     } else {
@@ -1029,7 +1029,7 @@
             update(state) {
                 const encoded = this.encode(state);
                 if (encoded) {
-                    window.history.replaceState(null, '', '#' + encoded);
+                    globalThis.history.replaceState(null, '', '#' + encoded);
                 }
             }
         };
@@ -1151,6 +1151,21 @@
         // ============================================================================
 
         class IsosmfarApp {
+            // =================================================================
+            // Class Fields - Static Values
+            // =================================================================
+            // Color Palettes (9 colors each, interpolated to 17)
+            colorPalettes = {
+                blue: ['#f7fbff','#deebf7','#c6dbef','#9ecae1','#6baed6','#4292c6','#2171b5','#08519c','#08306b'],
+                green: ['#f7fcf5','#e5f5e0','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#006d2c','#00441b'],
+                gray: ['#ffffff','#f0f0f0','#d9d9d9','#bdbdbd','#969696','#737373','#525252','#252525','#000000'],
+                orange: ['#fff5eb','#fee6ce','#fdd0a2','#fdae6b','#fd8d3c','#f16913','#d94801','#a63603','#7f2704'],
+                purple: ['#fcfbfd','#efedf5','#dadaeb','#bcbddc','#9e9ac8','#807dba','#6a51a3','#54278f','#3f007d'],
+                red: ['#fff5f0','#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d']
+            };
+
+            interpolatedPalettes = {};
+
             constructor() {
                 // =================================================================
                 // Core State
@@ -1205,21 +1220,9 @@
                 this.currentBasemap = urlParams.basemap ||
                     storage.get(CONFIG.STORAGE_KEYS.BASEMAP, 'standard');
 
-                // =================================================================
-                // Color Palettes (9 colors each, interpolated to 17)
-                // =================================================================
-                this.colorPalettes = {
-                    blue: ['#f7fbff','#deebf7','#c6dbef','#9ecae1','#6baed6','#4292c6','#2171b5','#08519c','#08306b'],
-                    green: ['#f7fcf5','#e5f5e0','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#006d2c','#00441b'],
-                    gray: ['#ffffff','#f0f0f0','#d9d9d9','#bdbdbd','#969696','#737373','#525252','#252525','#000000'],
-                    orange: ['#fff5eb','#fee6ce','#fdd0a2','#fdae6b','#fd8d3c','#f16913','#d94801','#a63603','#7f2704'],
-                    purple: ['#fcfbfd','#efedf5','#dadaeb','#bcbddc','#9e9ac8','#807dba','#6a51a3','#54278f','#3f007d'],
-                    red: ['#fff5f0','#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d']
-                };
-
+                // Current palette selection (loaded from URL/storage or default)
                 this.currentPalette = urlParams.palette ||
                     storage.get(CONFIG.STORAGE_KEYS.PALETTE, 'blue');
-                this.interpolatedPalettes = {};
 
                 this.init();
             }
@@ -2974,7 +2977,7 @@
          * Enhances app as Progressive Web App
          */
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
+            globalThis.addEventListener('load', () => {
                 // Create inline service worker
                 const swCode = `
                     const CACHE_NAME = 'isosmfar-v1';
