@@ -3005,84 +3005,13 @@
         }
 
         // ============================================================================
-        // SERVICE WORKER REGISTRATION (PWA Support)
+        // NOTE: Service Worker registration removed
         // ============================================================================
-
-        /**
-         * Register service worker for offline functionality
-         * Enhances app as Progressive Web App
-         */
-        if ('serviceWorker' in navigator) {
-            globalThis.addEventListener('load', () => {
-                // Get base path for absolute URLs
-                const basePath = globalThis.location.origin + globalThis.location.pathname.substring(0, globalThis.location.pathname.lastIndexOf('/') + 1);
-
-                // Create inline service worker
-                const swCode = `
-                    const CACHE_NAME = 'isosmfar-v1';
-                    const urlsToCache = [
-                        '${basePath}',
-                        '${basePath}index.html',
-                        'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css',
-                        'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js',
-                        'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js',
-                        'https://cdn.jsdelivr.net/npm/d3-delaunay@6'
-                    ];
-
-                    self.addEventListener('install', (event) => {
-                        event.waitUntil(
-                            caches.open(CACHE_NAME)
-                                .then((cache) => cache.addAll(urlsToCache))
-                                .catch((error) => console.log('Cache install failed:', error))
-                        );
-                    });
-
-                    self.addEventListener('fetch', (event) => {
-                        // Only cache GET requests
-                        if (event.request.method !== 'GET') return;
-
-                        // Skip Overpass and Nominatim API requests
-                        if (event.request.url.includes('overpass-api.de') ||
-                            event.request.url.includes('nominatim.openstreetmap.org')) {
-                            return;
-                        }
-
-                        event.respondWith(
-                            caches.match(event.request)
-                                .then((response) => response || fetch(event.request))
-                        );
-                    });
-
-                    self.addEventListener('activate', (event) => {
-                        event.waitUntil(
-                            caches.keys().then((cacheNames) => {
-                                return Promise.all(
-                                    cacheNames.map((cacheName) => {
-                                        if (cacheName !== CACHE_NAME) {
-                                            return caches.delete(cacheName);
-                                        }
-                                    })
-                                );
-                            })
-                        );
-                    });
-                `;
-
-                // Create blob URL for service worker
-                const blob = new Blob([swCode], { type: 'application/javascript' });
-                const swUrl = URL.createObjectURL(blob);
-
-                // Register with explicit scope to avoid blob: URL scope resolution issues
-                const scope = globalThis.location.pathname.substring(0, globalThis.location.pathname.lastIndexOf('/') + 1);
-                navigator.serviceWorker.register(swUrl, { scope: scope })
-                    .then((registration) => {
-                        console.log('Service Worker registered successfully:', registration.scope);
-                    })
-                    .catch((error) => {
-                        console.log('Service Worker registration failed:', error);
-                    });
-            });
-        }
+        // Service Workers cannot be registered from blob: or data: URLs due to
+        // browser security restrictions. While inline Service Workers are possible
+        // with proper server configuration, they conflict with the single-file
+        // architecture requirement. The app uses IndexedDB for API response caching
+        // which provides the main performance benefit.
 
         // ============================================================================
         // APPLICATION INITIALIZATION
