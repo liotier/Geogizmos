@@ -6,7 +6,7 @@ The app is fully self-contained in a single file - with the notable exception of
 
 I love Openstreetmap !
 
-# 👉 [Try it now – Isosmfar online](https://liotier.github.io/Geogizmos/Isosmfar/Isosmfar.html)
+# 👉 [Try it now – Isosmfar online](https://liotier.github.io/Geogizmos/Isosmfar/)
 
 ![screenshot](Isosmfar_screenshot.jpg)
 
