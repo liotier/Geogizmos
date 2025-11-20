@@ -115,7 +115,7 @@ export const CONFIG = {
         defaultCenter: [6.2667, 44.9833],
 
         // Default zoom
-        defaultZoom: 6,
+        defaultZoom: 3,
 
         // Max zoom
         maxZoom: 18,
