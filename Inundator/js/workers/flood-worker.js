@@ -9,7 +9,7 @@
  * - Cache dam geometry on first calculation, reuse on DEM expansions (don't recalculate!)
  */
 
-const WORKER_VERSION = "2024.11.19.13";
+const WORKER_VERSION = "2024.11.19.15";
 
 // Worker configuration
 const CONFIG = {
@@ -99,11 +99,14 @@ self.addEventListener('message', function (e) {
 
         debugLog(`Worker v${WORKER_VERSION}: ${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m`);
 
-        const flooded = performIncrementalFlood(demData, damCells, crestElevation);
+        const result = performIncrementalFlood(demData, damCells, crestElevation);
 
         // Only send completion if we got actual results (null means expansion requested)
-        if (flooded !== null) {
-            self.postMessage({ flooded: Array.from(flooded) });
+        if (result !== null) {
+            self.postMessage({
+                flooded: Array.from(result.flooded),
+                barriers: Array.from(result.barriers)
+            });
         }
     } catch (error) {
         self.postMessage({
@@ -186,7 +189,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
     if (seeds.length === 0) {
         debugLog('ERROR: No seed cells found');
-        return new Set();
+        return { flooded: new Set(), barriers };
     }
 
     debugLog(`Starting from ${seeds.length} seed cells at valley floor`);
@@ -258,18 +261,18 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // select the stagnant side as upstream reservoir and stop
             if (leftStagnant >= 3 && rightGrowing) {
                 debugLog(`Left side stagnant at ${leftSide.size} cells, right growing to ${rightSide.size} - selecting left as upstream`);
-                return leftSide;
+                return { flooded: leftSide, barriers };
             }
             if (rightStagnant >= 3 && leftGrowing) {
                 debugLog(`Right side stagnant at ${rightSide.size} cells, left growing to ${leftSide.size} - selecting right as upstream`);
-                return rightSide;
+                return { flooded: rightSide, barriers };
             }
 
             // If both sides are stagnant, we're done - return the smaller (upstream) side
             if (leftStagnant >= 3 && rightStagnant >= 3) {
                 const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
                 debugLog(`Both sides stagnant - selecting smaller side (${upstream.size} cells) as upstream`);
-                return upstream;
+                return { flooded: upstream, barriers };
             }
 
             lastLeftSize = leftSide.size;
@@ -360,7 +363,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
     debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
 
-    return upstream;
+    return { flooded: upstream, barriers };
 }
 
 /**
@@ -526,53 +529,20 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
     debugLog(`Dam endpoint elevations: ${elev1.toFixed(1)}m, ${elev2.toFixed(1)}m`);
     debugLog(`Dam level (highest endpoint): ${damLevel.toFixed(1)}m`);
 
-    // Extend only from the LOWER endpoint, perpendicular to dam line, towards valley wall
+    // Extend only from the LOWER endpoint, along the dam line direction
+    // This closes the gap between the lower endpoint and the valley wall
     let extendFromEnd1 = elev1 < elev2;  // true if endpoint 1 is lower
     let extCount = 0;
     let currentX = extendFromEnd1 ? x1 : x2;
     let currentY = extendFromEnd1 ? y1 : y2;
 
-    // Perpendicular direction (rotate 90 degrees from dam direction)
-    // Try both perpendicular directions to find which one hits valley wall faster
-    const perpDirX1 = -dirY;
-    const perpDirY1 = dirX;
-    const perpDirX2 = dirY;
-    const perpDirY2 = -dirX;
+    // Extension direction: continue along the dam line from the lower endpoint
+    // If extending from end1 (lower), go in opposite direction (backward from end1)
+    // If extending from end2 (lower), go in same direction (forward from end2)
+    const extDirX = extendFromEnd1 ? -dirX : dirX;
+    const extDirY = extendFromEnd1 ? -dirY : dirY;
 
-    // Test both perpendicular directions - use the one that finds higher ground faster
-    let bestDirX = perpDirX1;
-    let bestDirY = perpDirY1;
-    let bestDist = 1000;
-
-    for (let testDir of [[perpDirX1, perpDirY1], [perpDirX2, perpDirY2]]) {
-        let testX = currentX;
-        let testY = currentY;
-        let dist = 0;
-        for (let i = 0; i < 100; i++) {
-            testX += testDir[0];
-            testY += testDir[1];
-            const tx = Math.round(testX);
-            const ty = Math.round(testY);
-            if (tx < 0 || tx >= width || ty < 0 || ty >= height) break;
-            const testCell = ty * width + tx;
-            const testElev = data[testCell];
-            if (testElev <= CONFIG.noDataValue) break;
-            dist++;
-            if (testElev > damLevel) {
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    bestDirX = testDir[0];
-                    bestDirY = testDir[1];
-                }
-                break;
-            }
-        }
-    }
-
-    const extDirX = bestDirX;
-    const extDirY = bestDirY;
-
-    debugLog(`Extending from ${extendFromEnd1 ? 'endpoint 1' : 'endpoint 2'} (lower end) at ${extendFromEnd1 ? elev1.toFixed(1) : elev2.toFixed(1)}m perpendicular to dam`);
+    debugLog(`Extending from ${extendFromEnd1 ? 'endpoint 1' : 'endpoint 2'} (lower end) at ${extendFromEnd1 ? elev1.toFixed(1) : elev2.toFixed(1)}m along dam line`);
 
     for (let i = 0; i < 1000; i++) {  // Max 1000 cells for large valleys
         currentX += extDirX;

@@ -180,6 +180,82 @@ export class Visualization {
     }
 
     /**
+     * Visualize dam barriers (extension) in different color
+     */
+    visualizeBarriers(barrierCells, demData) {
+        // Remove existing barrier visualization
+        this.removeBarriers();
+
+        // Convert barrier cells to geographic points
+        const { width, zoom, tileBounds, minX, minY } = demData;
+        const [tileWest, tileNorth] = tileBounds;
+        const n = Math.pow(2, zoom);
+
+        // Calculate origin tile coordinates from minX/minY offsets
+        const originTileWest = tileWest - minX / 256;
+        const originTileNorth = tileNorth - minY / 256;
+
+        const points = [];
+        for (const cell of barrierCells) {
+            const arrayX = cell % width;
+            const arrayY = Math.floor(cell / width);
+
+            // Convert to logical grid coordinates
+            const gridX = arrayX + minX;
+            const gridY = arrayY + minY;
+
+            // Convert to tile coordinates
+            const tileX = originTileWest + (gridX / 256);
+            const tileY = originTileNorth + (gridY / 256);
+
+            // Convert to lng/lat
+            const lng = (tileX / n) * 360 - 180;
+            const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
+
+            points.push([lng, lat]);
+        }
+
+        // Create line from barrier points
+        if (points.length > 0) {
+            const barrierLine = {
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: points
+                }
+            };
+
+            this.map.addSource('barrier-extension', {
+                type: 'geojson',
+                data: barrierLine
+            });
+
+            this.map.addLayer({
+                id: 'barrier-extension',
+                type: 'line',
+                source: 'barrier-extension',
+                paint: {
+                    'line-color': '#ff6600',  // Orange color to distinguish from user-drawn dam
+                    'line-width': 3,
+                    'line-opacity': 0.8
+                }
+            });
+        }
+    }
+
+    /**
+     * Remove barrier visualization
+     */
+    removeBarriers() {
+        if (this.map.getLayer('barrier-extension')) {
+            this.map.removeLayer('barrier-extension');
+        }
+        if (this.map.getSource('barrier-extension')) {
+            this.map.removeSource('barrier-extension');
+        }
+    }
+
+    /**
      * Remove flood visualization
      */
     removeFlood() {
@@ -202,5 +278,6 @@ export class Visualization {
         this.removeDamPreview();
         this.removeDamLine();
         this.removeFlood();
+        this.removeBarriers();
     }
 }

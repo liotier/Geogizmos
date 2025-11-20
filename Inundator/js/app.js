@@ -93,7 +93,7 @@ export class InundatorApp {
             } else if (e.data.needMoreDEM) {
                 this.handleDEMExpansionRequest(e.data);
             } else if (e.data.flooded) {
-                this.onFloodFillComplete(e.data.flooded);
+                this.onFloodFillComplete(e.data.flooded, e.data.barriers);
             }
         });
     }
@@ -444,7 +444,7 @@ export class InundatorApp {
         }
     }
 
-    onFloodFillComplete(floodedCells) {
+    onFloodFillComplete(floodedCells, barrierCells) {
         this.showStatus('Creating flood polygon...');
 
         const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
@@ -452,6 +452,11 @@ export class InundatorApp {
         if (polygon) {
             this.floodPolygon = polygon;
             this.visualization.visualizeFlood(polygon);
+
+            // Visualize dam extension (barriers) in different color
+            if (barrierCells && barrierCells.length > 0) {
+                this.visualization.visualizeBarriers(barrierCells, this.demData);
+            }
 
             const stats = Statistics.calculate(
                 polygon,
