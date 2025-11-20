@@ -111,11 +111,11 @@ export const CONFIG = {
 
     // Map Configuration
     map: {
-        // Default center (Mont Blanc / Monte Bianco, France/Italy border)
-        defaultCenter: [6.8651, 45.8326],
+        // Default center (L'Olan, France - Écrins massif)
+        defaultCenter: [6.2667, 44.9833],
 
         // Default zoom
-        defaultZoom: 13,
+        defaultZoom: 6,
 
         // Max zoom
         maxZoom: 18,
