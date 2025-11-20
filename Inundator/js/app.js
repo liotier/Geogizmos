@@ -307,6 +307,9 @@ export class InundatorApp {
     async computeInundation() {
         if (!this.damLine) return;
 
+        // Track computation start time
+        this.computationStartTime = Date.now();
+
         // Reset downstream rejection counter for new computation
         this.downstreamRejectionCount = 0;
 
@@ -483,12 +486,17 @@ export class InundatorApp {
                 this.visualization.visualizeBarriers(barrierCells, this.demData);
             }
 
+            // Calculate elapsed time
+            const elapsedSeconds = this.computationStartTime ?
+                (Date.now() - this.computationStartTime) / 1000 : null;
+
             const stats = Statistics.calculate(
                 polygon,
                 floodedCells,
                 this.demData,
                 this.damLine,
-                this.crestElevation
+                this.crestElevation,
+                elapsedSeconds
             );
 
             this.displayStatistics(stats);
@@ -512,6 +520,7 @@ export class InundatorApp {
         document.getElementById('stat-depth').textContent = formatted.maxDepth;
         document.getElementById('stat-dam-length').textContent = formatted.damLength;
         document.getElementById('stat-avg-depth').textContent = formatted.avgDepth;
+        document.getElementById('stat-elapsed-time').textContent = formatted.elapsedTime || '-';
 
         document.getElementById('stats').style.display = 'block';
     }

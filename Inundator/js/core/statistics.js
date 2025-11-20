@@ -10,7 +10,7 @@ export class Statistics {
     /**
      * Calculate all reservoir statistics
      */
-    static calculate(polygon, floodedCells, demData, damLine, crestElevation) {
+    static calculate(polygon, floodedCells, demData, damLine, crestElevation, elapsedSeconds = null) {
         if (!polygon) return null;
 
         // Calculate surface area
@@ -55,7 +55,8 @@ export class Statistics {
             floodedCellCount: floodedCells.length,
             validCellCount: validCells,
             minElevation,
-            crestElevation
+            crestElevation,
+            elapsedSeconds
         };
     }
 
@@ -65,12 +66,29 @@ export class Statistics {
     static format(stats) {
         if (!stats) return null;
 
+        // Format elapsed time
+        let elapsedTime = null;
+        if (stats.elapsedSeconds !== null && stats.elapsedSeconds !== undefined) {
+            const totalSeconds = Math.round(stats.elapsedSeconds);
+            if (totalSeconds < 60) {
+                elapsedTime = `${totalSeconds} second${totalSeconds !== 1 ? 's' : ''}`;
+            } else {
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                elapsedTime = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+                if (seconds > 0) {
+                    elapsedTime += ` ${seconds} second${seconds !== 1 ? 's' : ''}`;
+                }
+            }
+        }
+
         return {
             area: `${stats.areaKm2.toFixed(2)} km²`,
             volume: `${stats.volumeMillionM3.toFixed(2)} million m³`,
             maxDepth: `${stats.maxDepthM.toFixed(1)} m`,
             avgDepth: `${stats.avgDepthM.toFixed(1)} m`,
-            damLength: `${stats.damLengthM.toFixed(0)} m`
+            damLength: `${stats.damLengthM.toFixed(0)} m`,
+            elapsedTime
         };
     }
 }
