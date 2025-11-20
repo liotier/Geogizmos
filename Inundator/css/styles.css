@@ -351,3 +351,30 @@ input[type="range"] {
 .location-input-container {
     position: relative;
 }
+
+#footer {
+    padding: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    margin-top: auto;
+}
+
+#footer p {
+    margin: 8px 0;
+    font-size: 13px;
+    color: var(--text);
+}
+
+#footer p:first-child {
+    font-weight: 500;
+}
+
+#footer a {
+    color: var(--secondary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+#footer a:hover {
+    text-decoration: underline;
+}

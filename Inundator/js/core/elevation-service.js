@@ -199,66 +199,94 @@ export class ElevationService {
         // Create combined elevation array
         const elevationData = new Float32Array(width * height);
 
-        // Fetch all tiles
+        // Build list of all tiles to fetch
         const totalTiles = tilesX * tilesY;
-        let loadedTiles = 0;
+        const tilesToFetch = [];
 
         for (let ty = tileNorth; ty <= tileNorth + tilesY - 1; ty++) {
             for (let tx = tileWest; tx <= tileWest + tilesX - 1; tx++) {
-                const tileKey = `${zoom}/${tx}/${ty}`;
-                let imageData = null;
+                tilesToFetch.push({ tx, ty });
+            }
+        }
 
-                try {
-                    // Check IndexedDB cache first
-                    const cachedData = await this.dbCache.get(tileKey);
-                    if (cachedData) {
-                        imageData = cachedData;
-                    } else {
-                        // Fetch from network
-                        const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
-                        const response = await fetch(url);
-                        const blob = await response.blob();
-                        imageData = await this.loadImageData(blob);
+        console.log(`Fetching ${totalTiles} tiles in parallel (${tilesX}x${tilesY})`);
 
-                        // Store in IndexedDB cache for future use
-                        await this.dbCache.put(tileKey, imageData);
-                    }
+        // Fetch all tiles in parallel
+        const tilePromises = tilesToFetch.map(async ({ tx, ty }) => {
+            const tileKey = `${zoom}/${tx}/${ty}`;
 
-                    // Copy to elevation array
-                    const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
-                    const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;
+            try {
+                // Check IndexedDB cache first
+                let imageData = await this.dbCache.get(tileKey);
+                let fromCache = !!imageData;
 
-                    for (let y = 0; y < CONFIG.dem.tileSize; y++) {
-                        for (let x = 0; x < CONFIG.dem.tileSize; x++) {
-                            const idx = (y * CONFIG.dem.tileSize + x) * 4;
-                            const r = imageData.data[idx];
-                            const g = imageData.data[idx + 1];
-                            const b = imageData.data[idx + 2];
+                if (!imageData) {
+                    // Fetch from network
+                    const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    imageData = await this.loadImageData(blob);
 
-                            const elevation = (r * 256 + g + b / 256) - 32768;
-
-                            const destIdx = (offsetY + y) * width + (offsetX + x);
-                            elevationData[destIdx] = elevation;
-                        }
-                    }
-
-                } catch (error) {
-                    console.warn(`Failed to load tile ${tileKey}:`, error);
-                    // Fill with no-data value
-                    const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
-                    const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;
-
-                    for (let y = 0; y < CONFIG.dem.tileSize; y++) {
-                        for (let x = 0; x < CONFIG.dem.tileSize; x++) {
-                            const destIdx = (offsetY + y) * width + (offsetX + x);
-                            elevationData[destIdx] = CONFIG.dem.noDataValue;
-                        }
-                    }
+                    // Store in IndexedDB cache for future use
+                    await this.dbCache.put(tileKey, imageData);
                 }
 
-                loadedTiles++;
-                if (progressCallback) {
-                    progressCallback(loadedTiles / totalTiles * 0.5);
+                return { tx, ty, imageData, error: null, fromCache };
+            } catch (error) {
+                console.warn(`Failed to load tile ${tileKey}:`, error);
+                return { tx, ty, imageData: null, error, fromCache: false };
+            }
+        });
+
+        // Wait for all tiles to complete, with progress updates
+        let loadedTiles = 0;
+        const tileResults = [];
+
+        // Process results as they complete
+        for (const promise of tilePromises) {
+            const result = await promise;
+            tileResults.push(result);
+
+            loadedTiles++;
+            if (progressCallback) {
+                progressCallback(loadedTiles / totalTiles * 0.5);
+            }
+        }
+
+        // Report cache statistics
+        const cachedCount = tileResults.filter(r => r.fromCache).length;
+        const fetchedCount = tileResults.filter(r => !r.fromCache && !r.error).length;
+        const failedCount = tileResults.filter(r => r.error).length;
+
+        console.log(`Tiles: ${cachedCount} from cache, ${fetchedCount} fetched, ${failedCount} failed`);
+
+        // Copy all tiles to elevation array
+        for (const { tx, ty, imageData, error } of tileResults) {
+            const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
+            const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;
+
+            if (imageData) {
+                // Copy image data to elevation array
+                for (let y = 0; y < CONFIG.dem.tileSize; y++) {
+                    for (let x = 0; x < CONFIG.dem.tileSize; x++) {
+                        const idx = (y * CONFIG.dem.tileSize + x) * 4;
+                        const r = imageData.data[idx];
+                        const g = imageData.data[idx + 1];
+                        const b = imageData.data[idx + 2];
+
+                        const elevation = (r * 256 + g + b / 256) - 32768;
+
+                        const destIdx = (offsetY + y) * width + (offsetX + x);
+                        elevationData[destIdx] = elevation;
+                    }
+                }
+            } else {
+                // Fill with no-data value
+                for (let y = 0; y < CONFIG.dem.tileSize; y++) {
+                    for (let x = 0; x < CONFIG.dem.tileSize; x++) {
+                        const destIdx = (offsetY + y) * width + (offsetX + x);
+                        elevationData[destIdx] = CONFIG.dem.noDataValue;
+                    }
                 }
             }
         }

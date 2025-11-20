@@ -146,7 +146,8 @@ self.addEventListener('message', function (e) {
             if (result !== null) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
-                    barriers: Array.from(result.barriers)
+                    barriers: Array.from(result.barriers),
+                    boundary: Array.from(result.boundary)
                 });
             }
         } else {
@@ -156,7 +157,8 @@ self.addEventListener('message', function (e) {
             if (result !== null) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
-                    barriers: Array.from(result.barriers)
+                    barriers: Array.from(result.barriers),
+                    boundary: Array.from(result.boundary)
                 });
             }
         }
@@ -262,6 +264,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     const leftSide = new Set();
     const rightSide = new Set();
     const queue = new SimpleQueue();
+
+    // Track boundary cells (cells adjacent to non-flooded cells)
+    // This dramatically speeds up polygon generation (only process boundary instead of all cells)
+    const boundaryCells = new Set();
 
     // Add seeds and partition them
     for (let seed of seeds) {
@@ -442,6 +448,16 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                 }
 
                 queue.push(neighbor);
+
+                // Check if this cell is on the boundary (has at least one non-flooded neighbor)
+                const neighborNeighbors = getNeighbors(neighbor, width, height);
+                for (let nn of neighborNeighbors) {
+                    if (visited[nn] === 0 && data[nn] >= maxWaterLevel) {
+                        // This cell borders a non-flooded cell - it's on the boundary
+                        boundaryCells.add(neighbor);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -459,10 +475,19 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
     const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
 
+    // Select boundary cells from the upstream side only
+    const upstreamBoundary = new Set();
+    for (let cell of boundaryCells) {
+        if (upstream.has(cell)) {
+            upstreamBoundary.add(cell);
+        }
+    }
+
     debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
     debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
+    debugLog(`Boundary cells: ${upstreamBoundary.size} (${((upstreamBoundary.size / upstream.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded: upstream, barriers };
+    return { flooded: upstream, barriers, boundary: upstreamBoundary };
 }
 
 /**
@@ -549,6 +574,9 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     const damY2 = Math.floor(lastDamCell / width);
     const damVectorX = damX2 - damX1;
     const damVectorY = damY2 - damY1;
+
+    // Track boundary cells
+    const boundaryCells = new Set();
 
     debugLog(`Continuing flood from iteration ${iterations} with ${queue.length} cells in queue`);
 
@@ -682,6 +710,15 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
                 }
 
                 queue.push(neighbor);
+
+                // Check if this cell is on the boundary
+                const neighborNeighbors = getNeighbors(neighbor, width, height);
+                for (let nn of neighborNeighbors) {
+                    if (visited[nn] === 0 && data[nn] >= maxWaterLevel) {
+                        boundaryCells.add(neighbor);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -698,10 +735,19 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     const upstream = leftSide.size < rightSide.size ? leftSide : rightSide;
     const downstream = leftSide.size < rightSide.size ? rightSide : leftSide;
 
+    // Select boundary cells from the upstream side only
+    const upstreamBoundary = new Set();
+    for (let cell of boundaryCells) {
+        if (upstream.has(cell)) {
+            upstreamBoundary.add(cell);
+        }
+    }
+
     debugLog(`Selected upstream: ${upstream.size} cells (smaller/confined)`);
     debugLog(`Rejected downstream: ${downstream.size} cells (larger/spreading)`);
+    debugLog(`Boundary cells: ${upstreamBoundary.size} (${((upstreamBoundary.size / upstream.size) * 100).toFixed(1)}% of total)`);
 
-    return { flooded: upstream, barriers };
+    return { flooded: upstream, barriers, boundary: upstreamBoundary };
 }
 
 /**
