@@ -6,11 +6,12 @@
 import { CONFIG } from '../config.js';
 
 export class MapManager {
+    map = null;
+    onMapClick = null;
+    onMapMouseMove = null;
+
     constructor(container) {
-        this.map = null;
         this.container = container;
-        this.onMapClick = null;
-        this.onMapMouseMove = null;
     }
 
     /**
