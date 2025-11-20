@@ -1688,6 +1688,7 @@
                                     }
                                 } catch (e) {
                                     // Fall back to using unclipped cell
+                                    console.warn('Error clipping Voronoi cell to boundary:', e);
                                     clippedCell = cellPolygon;
                                 }
                             } else {
