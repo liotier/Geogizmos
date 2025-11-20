@@ -3014,12 +3014,15 @@
          */
         if ('serviceWorker' in navigator) {
             globalThis.addEventListener('load', () => {
+                // Get base path for absolute URLs
+                const basePath = globalThis.location.origin + globalThis.location.pathname.substring(0, globalThis.location.pathname.lastIndexOf('/') + 1);
+
                 // Create inline service worker
                 const swCode = `
                     const CACHE_NAME = 'isosmfar-v1';
                     const urlsToCache = [
-                        './',
-                        './index.html',
+                        '${basePath}',
+                        '${basePath}index.html',
                         'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css',
                         'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js',
                         'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js',
@@ -3069,7 +3072,9 @@
                 const blob = new Blob([swCode], { type: 'application/javascript' });
                 const swUrl = URL.createObjectURL(blob);
 
-                navigator.serviceWorker.register(swUrl)
+                // Register with explicit scope to avoid blob: URL scope resolution issues
+                const scope = globalThis.location.pathname.substring(0, globalThis.location.pathname.lastIndexOf('/') + 1);
+                navigator.serviceWorker.register(swUrl, { scope: scope })
                     .then((registration) => {
                         console.log('Service Worker registered successfully:', registration.scope);
                     })
