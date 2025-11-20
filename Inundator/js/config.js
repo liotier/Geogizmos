@@ -114,8 +114,8 @@ export const CONFIG = {
         // Default center (L'Olan, France - Écrins massif)
         defaultCenter: [6.2667, 44.9833],
 
-        // Default zoom
-        defaultZoom: 3,
+        // Default zoom (11 ≈ 20km coverage)
+        defaultZoom: 11,
 
         // Max zoom
         maxZoom: 18,
