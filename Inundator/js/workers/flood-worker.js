@@ -383,18 +383,15 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             const rightGrowing = rightGrowth > 0;
 
             // Detect stagnation: confined valley vs runaway downstream
-            // A side is effectively stagnant (confined) if:
-            // 1. It's not growing at all, OR
-            // 2. The other side is running away (much larger AND growing much faster)
+            // Only consider a side stagnant if it has COMPLETELY stopped growing (zero growth)
+            // Slow growth through narrow sections should not trigger early termination
             const leftGrowthRate = lastLeftSize > 0 ? leftGrowth / lastLeftSize : 0;
             const rightGrowthRate = lastRightSize > 0 ? rightGrowth / lastRightSize : 0;
 
-            // Very conservative threshold: only stop if one side is massively larger and faster
-            // This prevents stopping when valley curves and both "sides" are part of upstream
-            const leftEffectivelyStagnant = !leftGrowing ||
-                (rightGrowing && rightGrowth > leftGrowth * 10 && rightSideCount > leftSideCount * 5);
-            const rightEffectivelyStagnant = !rightGrowing ||
-                (leftGrowing && leftGrowth > rightGrowth * 10 && leftSideCount > rightSideCount * 5);
+            // Require absolute zero growth for stagnation
+            // This prevents false positives when valley narrows temporarily
+            const leftEffectivelyStagnant = !leftGrowing;
+            const rightEffectivelyStagnant = !rightGrowing;
 
             if (leftEffectivelyStagnant) leftStagnant++;
             else leftStagnant = 0;
@@ -729,10 +726,10 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
             const leftGrowthRate = lastLeftSize > 0 ? leftGrowth / lastLeftSize : 0;
             const rightGrowthRate = lastRightSize > 0 ? rightGrowth / lastRightSize : 0;
 
-            const leftEffectivelyStagnant = !leftGrowing ||
-                (rightGrowing && rightGrowth > leftGrowth * 10 && currentRightCount > currentLeftCount * 5);
-            const rightEffectivelyStagnant = !rightGrowing ||
-                (leftGrowing && leftGrowth > rightGrowth * 10 && currentLeftCount > currentRightCount * 5);
+            // Require absolute zero growth for stagnation
+            // This prevents false positives when valley narrows temporarily
+            const leftEffectivelyStagnant = !leftGrowing;
+            const rightEffectivelyStagnant = !rightGrowing;
 
             if (leftEffectivelyStagnant) leftStagnant++;
             else leftStagnant = 0;
