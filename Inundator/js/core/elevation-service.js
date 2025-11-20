@@ -261,7 +261,7 @@ export class ElevationService {
         console.log(`Tiles: ${cachedCount} from cache, ${fetchedCount} fetched, ${failedCount} failed`);
 
         // Copy all tiles to elevation array
-        for (const { tx, ty, imageData, error } of tileResults) {
+        for (const { tx, ty, imageData } of tileResults) {
             const offsetX = (tx - tileWest) * CONFIG.dem.tileSize;
             const offsetY = (ty - tileNorth) * CONFIG.dem.tileSize;
 

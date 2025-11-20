@@ -29,7 +29,7 @@ export class MapManager {
         };
 
         try {
-            this.map = new window.maplibregl.Map({
+            this.map = new globalThis.maplibregl.Map({
                 container: this.container,
                 preserveDrawingBuffer: true,
                 failIfMajorPerformanceCaveat: false,
@@ -42,7 +42,7 @@ export class MapManager {
         } catch (error) {
             console.error('Failed to initialize map with default settings, trying fallback:', error);
 
-            this.map = new window.maplibregl.Map({
+            this.map = new globalThis.maplibregl.Map({
                 container: this.container,
                 preserveDrawingBuffer: false,
                 failIfMajorPerformanceCaveat: false,
@@ -55,10 +55,10 @@ export class MapManager {
             });
         }
 
-        this.map.addControl(new window.maplibregl.NavigationControl());
+        this.map.addControl(new globalThis.maplibregl.NavigationControl());
 
         // Add scale bar (metric) at bottom-left
-        this.map.addControl(new window.maplibregl.ScaleControl({
+        this.map.addControl(new globalThis.maplibregl.ScaleControl({
             maxWidth: 100,
             unit: 'metric'
         }), 'bottom-left');

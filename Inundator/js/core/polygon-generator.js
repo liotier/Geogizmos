@@ -28,7 +28,7 @@ export class PolygonGenerator {
         }
 
         // Use d3-contours marching squares algorithm
-        const contours = window.d3.contours()
+        const contours = globalThis.d3.contours()
             .size([width, height])
             .thresholds([0.5])(values);
 
@@ -92,7 +92,7 @@ export class PolygonGenerator {
 
         // Validate and simplify
         try {
-            const area = window.turf.area(polygon);
+            const area = globalThis.turf.area(polygon);
             if (Number.isNaN(area) || area <= 0) {
                 console.error('Invalid polygon area:', area);
                 return null;
@@ -102,7 +102,7 @@ export class PolygonGenerator {
 
             // Simplify if too complex
             if (geoRings[0].length > CONFIG.visualization.maxPolygonPoints) {
-                const simplified = window.turf.simplify(polygon, {
+                const simplified = globalThis.turf.simplify(polygon, {
                     tolerance: CONFIG.visualization.simplificationTolerance,
                     highQuality: true
                 });
@@ -157,7 +157,7 @@ export class PolygonGenerator {
                 const lng = (tileX / n) * 360 - 180;
                 const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
 
-                if (!Number.isNaN(lng) && !Number.isNaN(lat) && isFinite(lng) && isFinite(lat)) {
+                if (!Number.isNaN(lng) && !Number.isNaN(lat) && Number.isFinite(lng) && Number.isFinite(lat)) {
                     geoRing.push([lng, lat]);
                 }
             }

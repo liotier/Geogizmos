@@ -10,12 +10,12 @@ export class DamGeometry {
      * Sample points along a line at regular intervals
      */
     static sampleLinePoints(coordinates, distanceM) {
-        const line = window.turf.lineString(coordinates);
-        const length = window.turf.length(line, { units: 'meters' });
+        const line = globalThis.turf.lineString(coordinates);
+        const length = globalThis.turf.length(line, { units: 'meters' });
         const samples = [];
 
         for (let dist = 0; dist <= length; dist += distanceM) {
-            const point = window.turf.along(line, dist, { units: 'meters' });
+            const point = globalThis.turf.along(line, dist, { units: 'meters' });
             samples.push(point.geometry.coordinates);
         }
 
@@ -79,7 +79,7 @@ export class DamGeometry {
      * @param {number} bufferKm - Optional buffer distance in km (defaults to CONFIG value)
      */
     static calculateDEMBounds(damLine, bufferKm = null) {
-        const center = window.turf.center(damLine);
+        const center = globalThis.turf.center(damLine);
         const [centerLng, centerLat] = center.geometry.coordinates;
 
         const buffer = bufferKm || CONFIG.dem.bufferKm;
@@ -120,7 +120,7 @@ export class DamGeometry {
         const resolution = 40075016.686 / Math.pow(2, zoom) / CONFIG.dem.tileSize;
 
         // Adjust for latitude
-        const center = window.turf.center(damLine);
+        const center = globalThis.turf.center(damLine);
         const lat = center.geometry.coordinates[1];
         const latAdjustment = Math.cos(lat * Math.PI / 180);
 
