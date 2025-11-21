@@ -458,10 +458,11 @@
             border-bottom: 1px solid var(--bg-light);
         }
         
-        .dropdown-item:hover {
+        .dropdown-item:hover,
+        .dropdown-item.selected {
             background: var(--bg-light);
         }
-        
+
         .dropdown-item:last-child {
             border-bottom: none;
         }
@@ -1218,6 +1219,9 @@
                 // Taginfo autocomplete caches
                 this.taginfoKeysCache = null;  // Cache of popular OSM keys
                 this.taginfoValuesCache = {};   // Cache of values per key
+                this.selectedQueryIndex = -1;   // Currently selected dropdown index for keyboard navigation
+                this.currentQueryTagInfo = null; // Current tag info for keyboard selection
+                this.currentQueryCursorPos = 0;  // Cursor position when dropdown was shown
 
                 // =================================================================
                 // Visualization Mode & Parameters
@@ -1993,6 +1997,36 @@
                     }, 300);
                 });
 
+                // Keyboard navigation for query autocomplete
+                document.getElementById('query').addEventListener('keydown', (e) => {
+                    const dropdown = document.getElementById('query-results');
+                    if (!dropdown.classList.contains('active')) {
+                        return;
+                    }
+
+                    const items = dropdown.querySelectorAll('.dropdown-item');
+                    if (items.length === 0) {
+                        return;
+                    }
+
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        this.selectedQueryIndex = Math.min(this.selectedQueryIndex + 1, items.length - 1);
+                        this.updateQueryDropdownSelection(items);
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        this.selectedQueryIndex = Math.max(this.selectedQueryIndex - 1, 0);
+                        this.updateQueryDropdownSelection(items);
+                    } else if (e.key === 'Enter') {
+                        if (this.selectedQueryIndex >= 0 && this.selectedQueryIndex < items.length) {
+                            e.preventDefault();
+                            items[this.selectedQueryIndex].click();
+                        }
+                    } else if (e.key === 'Escape') {
+                        this.hideQueryDropdown();
+                    }
+                });
+
                 document.addEventListener('click', (e) => {
                     if (!e.target.closest('.area-input-container')) {
                         this.hideDropdown();
@@ -2131,7 +2165,7 @@
 
             /**
              * Search Taginfo API for tag suggestions
-             * Fetches data once and caches it, then filters client-side for better performance
+             * Uses correct Taginfo API endpoints with client-side caching
              * @param {Object} tagInfo - Current tag info from extractCurrentTag
              * @param {number} cursorPos - Cursor position
              */
@@ -2140,41 +2174,35 @@
                     let results;
 
                     if (tagInfo.isValue) {
-                        // Get values for this key
-                        if (!this.taginfoValuesCache[tagInfo.key]) {
-                            // Fetch and cache all values for this key (top 100)
-                            const apiUrl = `https://taginfo.openstreetmap.org/api/4/key/values?key=${encodeURIComponent(tagInfo.key)}&page=1&rp=100&sortname=count&sortorder=desc`;
+                        // Get prevalent values for this key
+                        const cacheKey = tagInfo.key;
+                        if (!this.taginfoValuesCache[cacheKey]) {
+                            // Fetch and cache prevalent values for this key
+                            const apiUrl = `https://taginfo.openstreetmap.org/api/4/key/prevalent_values?key=${encodeURIComponent(tagInfo.key)}`;
                             const response = await fetch(apiUrl);
                             if (!response.ok) {
                                 throw new Error(`Taginfo API error: ${response.status}`);
                             }
                             const data = await response.json();
-                            this.taginfoValuesCache[tagInfo.key] = data.data || [];
+                            this.taginfoValuesCache[cacheKey] = data.data || [];
                         }
 
                         // Filter cached values client-side
                         const searchTerm = (tagInfo.value || '').toLowerCase();
-                        results = this.taginfoValuesCache[tagInfo.key].filter(item =>
+                        results = this.taginfoValuesCache[cacheKey].filter(item =>
                             item.value.toLowerCase().includes(searchTerm)
                         );
                     } else {
-                        // Get keys
-                        if (!this.taginfoKeysCache) {
-                            // Fetch and cache popular keys (top 100)
-                            const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?page=1&rp=100&sortname=count&sortorder=desc`;
-                            const response = await fetch(apiUrl);
-                            if (!response.ok) {
-                                throw new Error(`Taginfo API error: ${response.status}`);
-                            }
-                            const data = await response.json();
-                            this.taginfoKeysCache = data.data || [];
-                        }
+                        // Search for keys using correct API parameters
+                        const searchTerm = tagInfo.key || '';
+                        const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?total=100&in_wiki=1&sort=count_all&sortorder=desc&query=${encodeURIComponent(searchTerm)}`;
 
-                        // Filter cached keys client-side
-                        const searchTerm = (tagInfo.key || '').toLowerCase();
-                        results = this.taginfoKeysCache.filter(item =>
-                            item.key.toLowerCase().includes(searchTerm)
-                        );
+                        const response = await fetch(apiUrl);
+                        if (!response.ok) {
+                            throw new Error(`Taginfo API error: ${response.status}`);
+                        }
+                        const data = await response.json();
+                        results = data.data || [];
                     }
 
                     this.showQueryResults(results, tagInfo, cursorPos);
@@ -2193,6 +2221,11 @@
             showQueryResults(results, tagInfo, cursorPos) {
                 const dropdown = document.getElementById('query-results');
                 dropdown.innerHTML = '';
+
+                // Reset keyboard navigation
+                this.selectedQueryIndex = -1;
+                this.currentQueryTagInfo = tagInfo;
+                this.currentQueryCursorPos = cursorPos;
 
                 if (results.length === 0) {
                     dropdown.innerHTML = '<div class="dropdown-item">No suggestions</div>';
@@ -2277,6 +2310,22 @@
              */
             hideQueryDropdown() {
                 document.getElementById('query-results').classList.remove('active');
+                this.selectedQueryIndex = -1;
+            }
+
+            /**
+             * Update visual selection in query dropdown for keyboard navigation
+             * @param {NodeList} items - Dropdown items
+             */
+            updateQueryDropdownSelection(items) {
+                items.forEach((item, index) => {
+                    if (index === this.selectedQueryIndex) {
+                        item.classList.add('selected');
+                        item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    } else {
+                        item.classList.remove('selected');
+                    }
+                });
             }
 
             processOverpassFilter(rawQuery) {
