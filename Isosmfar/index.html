@@ -2195,7 +2195,7 @@
                     } else {
                         // Search for keys using correct API parameters
                         const searchTerm = tagInfo.key || '';
-                        const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?total=100&in_wiki=1&sort=count_all&sortorder=desc&query=${encodeURIComponent(searchTerm)}`;
+                        const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?query=${encodeURIComponent(searchTerm)}&sort=count_all&sortorder=desc&rp=20`;
 
                         const response = await fetch(apiUrl);
                         if (!response.ok) {
