@@ -1273,22 +1273,39 @@
             init() {
                 this.interpolatePalettes();
                 this.initPaletteSelector();
+
+                // Load URL parameters first to get initial map position
+                this.loadStateFromURL();
+
+                // Initialize map with correct position from URL (or defaults)
                 this.initMap();
+
                 this.bindEvents();
                 this.initSliderControls();
                 this.initModeToggle();
                 this.initVoronoiCheckbox();
                 this.initCoalesceSlider();
                 this.initModeSpecificSliders();
-                this.loadStateFromURL();
+
+                // Restore UI to match loaded state
                 this.restoreUIFromState();
+
+                // Auto-execute query if URL has area and query
+                this.autoExecuteFromURL();
             }
 
             /**
              * Load state from URL parameters (if present)
+             * Called before map initialization to get initial position
              */
             loadStateFromURL() {
                 const urlParams = urlState.decode();
+
+                // Store initial map position for initMap() to use
+                this.initialMapCenter = urlParams.lat !== undefined && urlParams.lng !== undefined
+                    ? [urlParams.lng, urlParams.lat]
+                    : null;
+                this.initialMapZoom = urlParams.zoom !== undefined ? urlParams.zoom : null;
 
                 // Restore visualization parameters
                 if (urlParams.mode) {
@@ -1299,7 +1316,6 @@
                 }
                 if (urlParams.basemap) {
                     this.currentBasemap = urlParams.basemap;
-                    this.switchBasemap(this.currentBasemap);
                 }
                 if (urlParams.transparency !== undefined) {
                     this.transparency = urlParams.transparency;
@@ -1315,18 +1331,9 @@
                 }
                 if (urlParams.voronoi !== undefined) {
                     this.showVoronoiBorders = urlParams.voronoi;
-                    document.getElementById('voronoi-overlay').checked = this.showVoronoiBorders;
                 }
                 if (urlParams.coalesce !== undefined) {
                     this.voronoiCoalesceKm = urlParams.coalesce;
-                }
-
-                // Restore map position if present
-                if (urlParams.lat !== undefined && urlParams.lng !== undefined) {
-                    this.map.setCenter([urlParams.lng, urlParams.lat]);
-                }
-                if (urlParams.zoom !== undefined) {
-                    this.map.setZoom(urlParams.zoom);
                 }
 
                 // Restore area and query inputs
@@ -1336,6 +1343,14 @@
                 if (urlParams.query) {
                     document.getElementById('query').value = urlParams.query;
                 }
+            }
+
+            /**
+             * Auto-execute query if URL has both area and query
+             * Called after map is initialized
+             */
+            autoExecuteFromURL() {
+                const urlParams = urlState.decode();
 
                 // Auto-execute query if both area and query are present
                 if (urlParams.area && urlParams.query) {
@@ -1354,10 +1369,18 @@
              * Restore UI controls to match current state
              */
             restoreUIFromState() {
-                // Set basemap dropdown
+                // Set basemap dropdown and apply basemap
                 const basemapSelect = document.getElementById('basemap-selector');
                 if (basemapSelect) {
                     basemapSelect.value = this.currentBasemap;
+                }
+                // Switch to the correct basemap (important for URL params)
+                this.switchBasemap(this.currentBasemap);
+
+                // Set voronoi checkbox
+                const voronoiCheckbox = document.getElementById('voronoi-overlay');
+                if (voronoiCheckbox) {
+                    voronoiCheckbox.checked = this.showVoronoiBorders;
                 }
 
                 // Set visualization mode buttons
@@ -1645,6 +1668,10 @@
             }
             
             initMap() {
+                // Use URL parameters for initial position, or defaults
+                const initialCenter = this.initialMapCenter || [-11.5, 8.5];
+                const initialZoom = this.initialMapZoom !== null ? this.initialMapZoom : 7;
+
                 this.map = new maplibregl.Map({
                     container: 'map',
                     preserveDrawingBuffer: true, // Preserve WebGL content for exports
@@ -1664,8 +1691,8 @@
                             source: 'osm'
                         }]
                     },
-                    center: [-11.5, 8.5],
-                    zoom: 7
+                    center: initialCenter,
+                    zoom: initialZoom
                 });
 
                 this.map.addControl(new maplibregl.NavigationControl());
