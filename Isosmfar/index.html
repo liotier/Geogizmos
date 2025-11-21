@@ -1290,11 +1290,63 @@
             loadStateFromURL() {
                 const urlParams = urlState.decode();
 
+                // Restore visualization parameters
+                if (urlParams.mode) {
+                    this.visualizationMode = urlParams.mode;
+                }
+                if (urlParams.palette) {
+                    this.currentPalette = urlParams.palette;
+                }
+                if (urlParams.basemap) {
+                    this.currentBasemap = urlParams.basemap;
+                    this.switchBasemap(this.currentBasemap);
+                }
+                if (urlParams.transparency !== undefined) {
+                    this.transparency = urlParams.transparency;
+                }
+                if (urlParams.radius !== undefined) {
+                    this.maxDistanceKm = urlParams.radius;
+                }
+                if (urlParams.idwPower !== undefined) {
+                    this.idwPower = urlParams.idwPower;
+                }
+                if (urlParams.heatBandwidth !== undefined) {
+                    this.heatBandwidth = urlParams.heatBandwidth;
+                }
+                if (urlParams.voronoi !== undefined) {
+                    this.showVoronoiBorders = urlParams.voronoi;
+                    document.getElementById('voronoi-overlay').checked = this.showVoronoiBorders;
+                }
+                if (urlParams.coalesce !== undefined) {
+                    this.voronoiCoalesceKm = urlParams.coalesce;
+                }
+
+                // Restore map position if present
+                if (urlParams.lat !== undefined && urlParams.lng !== undefined) {
+                    this.map.setCenter([urlParams.lng, urlParams.lat]);
+                }
+                if (urlParams.zoom !== undefined) {
+                    this.map.setZoom(urlParams.zoom);
+                }
+
+                // Restore area and query inputs
                 if (urlParams.area) {
                     document.getElementById('area').value = urlParams.area;
                 }
                 if (urlParams.query) {
                     document.getElementById('query').value = urlParams.query;
+                }
+
+                // Auto-execute query if both area and query are present
+                if (urlParams.area && urlParams.query) {
+                    // Wait for map to be ready, then trigger generate
+                    if (this.map.loaded()) {
+                        this.generate();
+                    } else {
+                        this.map.once('load', () => {
+                            this.generate();
+                        });
+                    }
                 }
             }
 
@@ -1303,7 +1355,7 @@
              */
             restoreUIFromState() {
                 // Set basemap dropdown
-                const basemapSelect = document.getElementById('basemap');
+                const basemapSelect = document.getElementById('basemap-selector');
                 if (basemapSelect) {
                     basemapSelect.value = this.currentBasemap;
                 }
@@ -1318,6 +1370,43 @@
                     }
                 });
 
+                // Update palette selector display
+                this.updatePaletteDisplay();
+
+                // Restore distance/radius slider position (exponential scale)
+                const logPosition = Math.log(this.maxDistanceKm / CONFIG.MIN_DISTANCE_KM) /
+                                   Math.log(this.maxDistanceLimit / CONFIG.MIN_DISTANCE_KM);
+                const distancePercent = Math.max(0, Math.min(100, logPosition * 100));
+                document.getElementById('distance-cursor').style.left = distancePercent + '%';
+
+                // Restore transparency slider position
+                const transparencyPercent = this.transparency * 100;
+                document.getElementById('transparency-cursor').style.left = transparencyPercent + '%';
+
+                // Restore IDW power slider position (linear scale 1.0 to 5.0)
+                const idwPercent = ((this.idwPower - 1.0) / 4.0) * 100;
+                document.getElementById('idw-power-cursor').style.left = idwPercent + '%';
+                document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
+
+                // Restore heat bandwidth slider position (linear scale 0.1 to 1.0)
+                const heatPercent = ((this.heatBandwidth - 0.1) / 0.9) * 100;
+                document.getElementById('heat-bandwidth-cursor').style.left = heatPercent + '%';
+                document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
+
+                // Restore coalesce slider position (exponential scale)
+                if (this.voronoiCoalesceKm === 0) {
+                    document.getElementById('coalesce-cursor').style.left = '0%';
+                } else {
+                    const coalesceLogPosition = Math.log(this.voronoiCoalesceKm / 0.001) /
+                                                Math.log(CONFIG.MAX_VORONOI_COALESCE_KM / 0.001);
+                    const coalescePercent = Math.max(0, Math.min(100, coalesceLogPosition * 100));
+                    document.getElementById('coalesce-cursor').style.left = coalescePercent + '%';
+                }
+
+                // Update slider value displays
+                this.updateSliderValues();
+                this.updateCoalesceValue();
+
                 // Update UI for current mode
                 this.updateUIForMode();
             }
@@ -1326,6 +1415,15 @@
              * Save current state to both URL and localStorage
              */
             saveState() {
+                // Don't save state if map isn't loaded yet
+                if (!this.map || !this.map.loaded()) {
+                    return;
+                }
+
+                // Get current map position
+                const center = this.map.getCenter();
+                const zoom = this.map.getZoom();
+
                 const state = {
                     mode: this.visualizationMode,
                     palette: this.currentPalette,
@@ -1335,7 +1433,10 @@
                     idwPower: this.idwPower,
                     heatBandwidth: this.heatBandwidth,
                     voronoi: this.showVoronoiBorders,
-                    coalesce: this.voronoiCoalesceKm
+                    coalesce: this.voronoiCoalesceKm,
+                    lat: center.lat.toFixed(4),
+                    lng: center.lng.toFixed(4),
+                    zoom: zoom.toFixed(2)
                 };
 
                 // Add area and query if present
@@ -1566,8 +1667,15 @@
                     center: [-11.5, 8.5],
                     zoom: 7
                 });
-                
+
                 this.map.addControl(new maplibregl.NavigationControl());
+
+                // Save map position to URL when user moves the map
+                // Debounce to avoid excessive URL updates during pan/zoom
+                const debouncedSaveState = debounce(() => {
+                    this.saveState();
+                }, 1000);
+                this.map.on('moveend', debouncedSaveState);
             }
             
             switchBasemap(basemapType) {
