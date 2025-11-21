@@ -1290,11 +1290,32 @@
             loadStateFromURL() {
                 const urlParams = urlState.decode();
 
+                // Restore map position if present
+                if (urlParams.lat !== undefined && urlParams.lng !== undefined) {
+                    this.map.setCenter([urlParams.lng, urlParams.lat]);
+                }
+                if (urlParams.zoom !== undefined) {
+                    this.map.setZoom(urlParams.zoom);
+                }
+
+                // Restore area and query inputs
                 if (urlParams.area) {
                     document.getElementById('area').value = urlParams.area;
                 }
                 if (urlParams.query) {
                     document.getElementById('query').value = urlParams.query;
+                }
+
+                // Auto-execute query if both area and query are present
+                if (urlParams.area && urlParams.query) {
+                    // Wait for map to be ready, then trigger generate
+                    if (this.map.loaded()) {
+                        this.generate();
+                    } else {
+                        this.map.once('load', () => {
+                            this.generate();
+                        });
+                    }
                 }
             }
 
@@ -1326,6 +1347,15 @@
              * Save current state to both URL and localStorage
              */
             saveState() {
+                // Don't save state if map isn't loaded yet
+                if (!this.map || !this.map.loaded()) {
+                    return;
+                }
+
+                // Get current map position
+                const center = this.map.getCenter();
+                const zoom = this.map.getZoom();
+
                 const state = {
                     mode: this.visualizationMode,
                     palette: this.currentPalette,
@@ -1335,7 +1365,10 @@
                     idwPower: this.idwPower,
                     heatBandwidth: this.heatBandwidth,
                     voronoi: this.showVoronoiBorders,
-                    coalesce: this.voronoiCoalesceKm
+                    coalesce: this.voronoiCoalesceKm,
+                    lat: center.lat.toFixed(4),
+                    lng: center.lng.toFixed(4),
+                    zoom: zoom.toFixed(2)
                 };
 
                 // Add area and query if present
@@ -1566,8 +1599,15 @@
                     center: [-11.5, 8.5],
                     zoom: 7
                 });
-                
+
                 this.map.addControl(new maplibregl.NavigationControl());
+
+                // Save map position to URL when user moves the map
+                // Debounce to avoid excessive URL updates during pan/zoom
+                const debouncedSaveState = debounce(() => {
+                    this.saveState();
+                }, 1000);
+                this.map.on('moveend', debouncedSaveState);
             }
             
             switchBasemap(basemapType) {
