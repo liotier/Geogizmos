@@ -2187,10 +2187,10 @@
                             this.taginfoValuesCache[cacheKey] = data.data || [];
                         }
 
-                        // Filter cached values client-side
+                        // Filter cached values client-side (skip null values)
                         const searchTerm = (tagInfo.value || '').toLowerCase();
                         results = this.taginfoValuesCache[cacheKey].filter(item =>
-                            item.value.toLowerCase().includes(searchTerm)
+                            item.value && item.value.toLowerCase().includes(searchTerm)
                         );
 
                         // Sort values alphabetically
@@ -2298,11 +2298,11 @@
                                currentValue.substring(tagInfo.endPos);
                     newCursorPos = tagInfo.startPos + tagInfo.key.length + 1 + selection.length;
                 } else {
-                    // Replace the key part
+                    // Replace the key part and append "="
                     newValue = currentValue.substring(0, tagInfo.startPos) +
-                               selection +
+                               selection + '=' +
                                currentValue.substring(tagInfo.endPos);
-                    newCursorPos = tagInfo.startPos + selection.length;
+                    newCursorPos = tagInfo.startPos + selection.length + 1;
                 }
 
                 input.value = newValue;
