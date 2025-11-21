@@ -2192,10 +2192,13 @@
                         results = this.taginfoValuesCache[cacheKey].filter(item =>
                             item.value.toLowerCase().includes(searchTerm)
                         );
+
+                        // Sort values alphabetically
+                        results.sort((a, b) => a.value.localeCompare(b.value));
                     } else {
-                        // Search for keys using correct API parameters
+                        // Search for keys (API ignores sort params, we'll sort client-side)
                         const searchTerm = tagInfo.key || '';
-                        const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?query=${encodeURIComponent(searchTerm)}&sort=count_all&sortorder=desc&rp=20`;
+                        const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?query=${encodeURIComponent(searchTerm)}`;
 
                         const response = await fetch(apiUrl);
                         if (!response.ok) {
@@ -2203,6 +2206,9 @@
                         }
                         const data = await response.json();
                         results = data.data || [];
+
+                        // Sort keys alphabetically
+                        results.sort((a, b) => a.key.localeCompare(b.key));
                     }
 
                     this.showQueryResults(results, tagInfo, cursorPos);
@@ -2230,7 +2236,8 @@
                 if (results.length === 0) {
                     dropdown.innerHTML = '<div class="dropdown-item">No suggestions</div>';
                 } else {
-                    results.slice(0, 10).forEach(result => {
+                    // Show all results (alphabetically sorted)
+                    results.forEach(result => {
                         const item = document.createElement('div');
                         item.className = 'dropdown-item';
 
