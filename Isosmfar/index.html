@@ -1306,6 +1306,9 @@
             loadStateFromURL() {
                 const urlParams = urlState.decode();
 
+                // Flag to indicate we loaded from URL (so generate() preserves values)
+                this.loadedFromURL = !!(urlParams.area && urlParams.query);
+
                 // Store initial map position for initMap() to use
                 this.initialMapCenter = urlParams.lat !== undefined && urlParams.lng !== undefined
                     ? [urlParams.lng, urlParams.lat]
@@ -2180,18 +2183,21 @@
                     const previousMaxDistanceLimit = this.maxDistanceLimit;
                     this.maxDistanceLimit = Math.round(Math.sqrt(areaSizeKm2) * 0.5);
 
-                    // Only set default distance if this is the first generation (no previous limit)
-                    // This preserves values loaded from URL or set by user
-                    if (previousMaxDistanceLimit === null) {
-                        // Based on empirical testing, alter to a pleasing default in % of the calculated maximum
-                        const defaultDistance = this.maxDistanceLimit * 0.12;
-
-                        // Ensure minimum of 0.01km (10 meters) and maximum of maxDistanceLimit
-                        this.maxDistanceKm = Math.max(0.01, Math.min(defaultDistance, this.maxDistanceLimit));
-                    } else {
+                    // Preserve values loaded from URL or set by user
+                    // If loaded from URL (this.loadedFromURL) or regenerating (previousMaxDistanceLimit !== null)
+                    if (this.loadedFromURL || previousMaxDistanceLimit !== null) {
                         // Keep current value but ensure it's within the new limits
                         this.maxDistanceKm = Math.max(0.01, Math.min(this.maxDistanceKm, this.maxDistanceLimit));
+                        console.log('Preserving distance from URL/user:', this.maxDistanceKm, 'km');
+                    } else {
+                        // First generation without URL params - use default
+                        const defaultDistance = this.maxDistanceLimit * 0.12;
+                        this.maxDistanceKm = Math.max(0.01, Math.min(defaultDistance, this.maxDistanceLimit));
+                        console.log('Using default distance:', this.maxDistanceKm, 'km');
                     }
+
+                    // Clear the flag after first use
+                    this.loadedFromURL = false;
 
                     this.computedMaxDistance = this.maxDistanceKm;
 
