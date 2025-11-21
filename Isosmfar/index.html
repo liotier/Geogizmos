@@ -466,7 +466,8 @@
             border-bottom: none;
         }
         
-        .area-input-container {
+        .area-input-container,
+        .query-input-container {
             position: relative;
         }
         
@@ -678,7 +679,10 @@
                 
                 <div class="control-group">
                     <label>Filter query</label>
-                    <input type="text" id="query" value="amenity=hospital" placeholder='amenity=hospital or [shop=supermarket]'>
+                    <div class="query-input-container">
+                        <input type="text" id="query" value="amenity=hospital" placeholder='amenity=hospital or [shop=supermarket]'>
+                        <div id="query-results" class="dropdown"></div>
+                    </div>
                     <div class="help-text">
                         Openstreetmap key=value or <a href="https://liotier.github.io/Geogizmos/Isosmfar/IsosmfarOverpassQLfilterSyntax.html" target="_blank">Overpass QL filter</a>
                     </div>
@@ -1954,27 +1958,50 @@
                 document.getElementById('area').addEventListener('input', (e) => {
                     clearTimeout(this.searchTimeout);
                     const query = e.target.value.trim();
-                    
+
                     if (query.length < 2) {
                         this.hideDropdown();
                         return;
                     }
-                    
+
                     this.searchTimeout = setTimeout(() => {
                         this.searchArea(query);
                     }, 300);
                 });
-                
+
+                // Query autocomplete using Taginfo
+                document.getElementById('query').addEventListener('input', (e) => {
+                    clearTimeout(this.querySearchTimeout);
+                    const input = e.target.value;
+                    const cursorPos = e.target.selectionStart;
+
+                    // Extract the current tag being edited
+                    const tagInfo = this.extractCurrentTag(input, cursorPos);
+
+                    // Only show autocomplete if we have a meaningful search term
+                    if (!tagInfo || !tagInfo.key || tagInfo.key.trim().length < 1) {
+                        this.hideQueryDropdown();
+                        return;
+                    }
+
+                    this.querySearchTimeout = setTimeout(() => {
+                        this.searchQueryTags(tagInfo, cursorPos);
+                    }, 300);
+                });
+
                 document.addEventListener('click', (e) => {
                     if (!e.target.closest('.area-input-container')) {
                         this.hideDropdown();
                     }
+                    if (!e.target.closest('.query-input-container')) {
+                        this.hideQueryDropdown();
+                    }
                 });
-                
+
                 document.getElementById('basemap-selector').addEventListener('change', (e) => {
                     this.switchBasemap(e.target.value);
                 });
-                
+
                 document.getElementById('generate').addEventListener('click', () => this.generate());
                 document.getElementById('export-png').addEventListener('click', () => this.exportPNG());
             }
@@ -2035,7 +2062,7 @@
                 this.selectedArea = area;
                 document.getElementById('area').value = area.display_name.split(',')[0];
                 this.hideDropdown();
-                
+
                 if (area.boundingbox) {
                     const bounds = [
                         [Number.parseFloat(area.boundingbox[2]), Number.parseFloat(area.boundingbox[0])],
@@ -2044,7 +2071,194 @@
                     this.map.fitBounds(bounds, { padding: 50 });
                 }
             }
-            
+
+            /**
+             * Extract the current tag being edited at cursor position
+             * @param {string} input - Full input string
+             * @param {number} cursorPos - Cursor position
+             * @returns {Object} - {key, value, isValue, startPos, endPos}
+             */
+            extractCurrentTag(input, cursorPos) {
+                // Find the tag boundaries around cursor
+                // Tags can be separated by spaces, commas, or 'and'
+                const beforeCursor = input.substring(0, cursorPos);
+                const afterCursor = input.substring(cursorPos);
+
+                // Find start of current tag (last separator before cursor)
+                const separatorRegex = /[,\s](?:and\s+)?/g;
+                let startPos = 0;
+                let match;
+                while ((match = separatorRegex.exec(beforeCursor)) !== null) {
+                    startPos = match.index + match[0].length;
+                }
+
+                // Find end of current tag (next separator after cursor)
+                const endMatch = afterCursor.match(/[,\s](?:and\s+)?/);
+                const endPos = endMatch ? cursorPos + endMatch.index : input.length;
+
+                const currentTag = input.substring(startPos, endPos).trim();
+
+                // Parse the tag
+                const equalPos = currentTag.indexOf('=');
+                if (equalPos === -1) {
+                    // Just a key, no value yet
+                    return {
+                        key: currentTag,
+                        value: null,
+                        isValue: false,
+                        startPos,
+                        endPos
+                    };
+                } else {
+                    // Key=value or key= (incomplete value)
+                    const key = currentTag.substring(0, equalPos);
+                    const value = currentTag.substring(equalPos + 1);
+                    const cursorInValue = cursorPos > (startPos + equalPos);
+
+                    return {
+                        key: key,
+                        value: value,
+                        isValue: cursorInValue,
+                        startPos,
+                        endPos
+                    };
+                }
+            }
+
+            /**
+             * Search Taginfo API for tag suggestions
+             * @param {Object} tagInfo - Current tag info from extractCurrentTag
+             * @param {number} cursorPos - Cursor position
+             */
+            async searchQueryTags(tagInfo, cursorPos) {
+                try {
+                    let apiUrl;
+                    let searchTerm;
+
+                    if (tagInfo.isValue) {
+                        // Search for values of this key
+                        apiUrl = `https://taginfo.openstreetmap.org/api/4/key/values?key=${encodeURIComponent(tagInfo.key)}&page=1&rp=10&sortname=count&sortorder=desc`;
+                        if (tagInfo.value) {
+                            apiUrl += `&filter=${encodeURIComponent(tagInfo.value)}`;
+                        }
+                        searchTerm = tagInfo.value || '';
+                    } else {
+                        // Search for keys
+                        apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?page=1&rp=10&sortname=count&sortorder=desc`;
+                        if (tagInfo.key) {
+                            apiUrl += `&query=${encodeURIComponent(tagInfo.key)}`;
+                        }
+                        searchTerm = tagInfo.key || '';
+                    }
+
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        throw new Error(`Taginfo API error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    this.showQueryResults(data.data || [], tagInfo, cursorPos);
+                } catch (error) {
+                    console.error('Taginfo search error:', error);
+                    this.hideQueryDropdown();
+                }
+            }
+
+            /**
+             * Display Taginfo search results in dropdown
+             * @param {Array} results - Array of tag results from Taginfo
+             * @param {Object} tagInfo - Current tag info
+             * @param {number} cursorPos - Cursor position
+             */
+            showQueryResults(results, tagInfo, cursorPos) {
+                const dropdown = document.getElementById('query-results');
+                dropdown.innerHTML = '';
+
+                if (results.length === 0) {
+                    dropdown.innerHTML = '<div class="dropdown-item">No suggestions</div>';
+                } else {
+                    results.slice(0, 10).forEach(result => {
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item';
+
+                        if (tagInfo.isValue) {
+                            // Showing values
+                            const value = result.value;
+                            const count = result.count ? ` (${this.formatCount(result.count)})` : '';
+                            item.textContent = `${value}${count}`;
+                            item.addEventListener('click', () => {
+                                this.selectQueryTag(tagInfo, value, cursorPos);
+                            });
+                        } else {
+                            // Showing keys
+                            const key = result.key;
+                            const count = result.count ? ` (${this.formatCount(result.count)})` : '';
+                            item.textContent = `${key}${count}`;
+                            item.addEventListener('click', () => {
+                                this.selectQueryTag(tagInfo, key, cursorPos);
+                            });
+                        }
+
+                        dropdown.appendChild(item);
+                    });
+                }
+
+                dropdown.classList.add('active');
+            }
+
+            /**
+             * Format count for display (e.g., 1234567 -> 1.2M)
+             */
+            formatCount(count) {
+                if (count >= 1000000) {
+                    return (count / 1000000).toFixed(1) + 'M';
+                } else if (count >= 1000) {
+                    return (count / 1000).toFixed(1) + 'K';
+                }
+                return count.toString();
+            }
+
+            /**
+             * Insert selected tag into query input
+             * @param {Object} tagInfo - Current tag info
+             * @param {string} selection - Selected key or value
+             * @param {number} cursorPos - Cursor position when search started
+             */
+            selectQueryTag(tagInfo, selection, cursorPos) {
+                const input = document.getElementById('query');
+                const currentValue = input.value;
+
+                let newValue;
+                let newCursorPos;
+
+                if (tagInfo.isValue) {
+                    // Replace the value part
+                    newValue = currentValue.substring(0, tagInfo.startPos) +
+                               tagInfo.key + '=' + selection +
+                               currentValue.substring(tagInfo.endPos);
+                    newCursorPos = tagInfo.startPos + tagInfo.key.length + 1 + selection.length;
+                } else {
+                    // Replace the key part
+                    newValue = currentValue.substring(0, tagInfo.startPos) +
+                               selection +
+                               currentValue.substring(tagInfo.endPos);
+                    newCursorPos = tagInfo.startPos + selection.length;
+                }
+
+                input.value = newValue;
+                input.setSelectionRange(newCursorPos, newCursorPos);
+                input.focus();
+
+                this.hideQueryDropdown();
+            }
+
+            /**
+             * Hide the query autocomplete dropdown
+             */
+            hideQueryDropdown() {
+                document.getElementById('query-results').classList.remove('active');
+            }
+
             processOverpassFilter(rawQuery) {
                 let query = rawQuery.trim();
                 
