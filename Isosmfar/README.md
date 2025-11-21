@@ -1,6 +1,6 @@
 # Isosmfar
 
-**Isosmfar** is an interactive web application for exploring **iso-distance fields** based on OpenStreetMap (OSM) data. It lets you visualize how far every location in a chosen area is from features that match a query (e.g. schools, hospitals, bus stops, restaurants, etc.).
+**Isosmfar** is an interactive web application for exploring **iso-distance fields** based on Openstreetmap (OSM) data. It lets you visualize how far every location in a chosen area is from features that match a query (e.g. schools, hospitals, bus stops, restaurants, etc.).
 
 The app is fully self-contained in a single file - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
 
@@ -162,7 +162,7 @@ Since Isosmfar is a static single-page application:
 - Fork and customize for domain-specific use cases
 - **Install as PWA** – add to home screen on mobile/desktop for offline access
 
-**No server infrastructure required** – just static file hosting and access to public OpenStreetMap services.
+**No server infrastructure required** – just static file hosting and access to public Openstreetmap services.
 
 ### Offline Usage
 

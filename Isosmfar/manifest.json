@@ -1,7 +1,7 @@
 {
   "name": "Isosmfar",
   "short_name": "Isosmfar",
-  "description": "Interactive OpenStreetMap heatmap visualization – explore distance fields to schools, hospitals, transport, and more.",
+  "description": "Interactive Openstreetmap heatmap visualization – explore distance fields to schools, hospitals, transport, and more.",
   "start_url": "Isosmfar.html",
   "scope": "./",
   "display": "standalone",
