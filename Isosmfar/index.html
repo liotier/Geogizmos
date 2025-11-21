@@ -1276,7 +1276,6 @@
 
                 // Load URL parameters first to get initial map position
                 this.loadStateFromURL();
-                console.log('Loaded URL params:', urlState.decode());
 
                 // Initialize map with correct position from URL (or defaults)
                 this.initMap();
@@ -1290,10 +1289,8 @@
 
                 // Wait for map to be fully loaded before restoring UI and auto-executing
                 this.map.once('load', () => {
-                    console.log('Map loaded, now restoring UI state');
                     // Restore UI to match loaded state
                     this.restoreUIFromState();
-                    console.log('UI state restored, checking for auto-execute');
                     // Auto-execute query if URL has area and query
                     this.autoExecuteFromURL();
                 });
@@ -1362,14 +1359,10 @@
 
                 // Auto-execute query if both area and query are present
                 if (urlParams.area && urlParams.query) {
-                    console.log('Auto-executing query from URL - Area:', urlParams.area, 'Query:', urlParams.query);
                     // Small delay to ensure all initialization is complete
                     setTimeout(() => {
-                        console.log('Calling generate()');
                         this.generate();
                     }, 200);
-                } else {
-                    console.log('No auto-execute - missing area or query. Area:', urlParams.area, 'Query:', urlParams.query);
                 }
             }
 
@@ -1377,25 +1370,10 @@
              * Restore UI controls to match current state
              */
             restoreUIFromState() {
-                console.log('restoreUIFromState() - Starting UI restoration');
-                console.log('Current state:', {
-                    mode: this.visualizationMode,
-                    basemap: this.currentBasemap,
-                    palette: this.currentPalette,
-                    transparency: this.transparency,
-                    maxDistanceKm: this.maxDistanceKm,
-                    maxDistanceLimit: this.maxDistanceLimit,
-                    idwPower: this.idwPower,
-                    heatBandwidth: this.heatBandwidth,
-                    voronoi: this.showVoronoiBorders,
-                    coalesce: this.voronoiCoalesceKm
-                });
-
                 // Set basemap dropdown and apply basemap
                 const basemapSelect = document.getElementById('basemap-selector');
                 if (basemapSelect) {
                     basemapSelect.value = this.currentBasemap;
-                    console.log('Set basemap dropdown to:', this.currentBasemap);
                 }
                 // Switch to the correct basemap (important for URL params)
                 this.switchBasemap(this.currentBasemap);
@@ -1404,13 +1382,11 @@
                 const voronoiCheckbox = document.getElementById('voronoi-overlay');
                 if (voronoiCheckbox) {
                     voronoiCheckbox.checked = this.showVoronoiBorders;
-                    console.log('Set voronoi checkbox to:', this.showVoronoiBorders);
                 }
                 // Show/hide Voronoi controls based on checkbox state
                 const voronoiControls = document.getElementById('voronoi-controls');
                 if (this.showVoronoiBorders) {
                     voronoiControls.classList.add('active');
-                    console.log('Showing Voronoi controls');
                 } else {
                     voronoiControls.classList.remove('active');
                 }
@@ -1424,7 +1400,6 @@
                         btn.classList.remove('active');
                     }
                 });
-                console.log('Set mode buttons for:', this.visualizationMode);
 
                 // Update palette selector display
                 this.updatePaletteDisplay();
@@ -1435,38 +1410,30 @@
                                        Math.log(this.maxDistanceLimit / CONFIG.MIN_DISTANCE_KM);
                     const distancePercent = Math.max(0, Math.min(100, logPosition * 100));
                     document.getElementById('distance-cursor').style.left = distancePercent + '%';
-                    console.log('Set distance slider to:', distancePercent + '%', '(' + this.maxDistanceKm + 'km)');
-                } else {
-                    console.log('Skipping distance slider - maxDistanceLimit not set yet');
                 }
 
                 // Restore transparency slider position
                 const transparencyPercent = this.transparency * 100;
                 document.getElementById('transparency-cursor').style.left = transparencyPercent + '%';
-                console.log('Set transparency slider to:', transparencyPercent + '%');
 
                 // Restore IDW power slider position (linear scale 1.0 to 5.0)
                 const idwPercent = ((this.idwPower - 1.0) / 4.0) * 100;
                 document.getElementById('idw-power-cursor').style.left = idwPercent + '%';
                 document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
-                console.log('Set IDW power slider to:', idwPercent + '%', '(power=' + this.idwPower + ')');
 
                 // Restore heat bandwidth slider position (linear scale 0.1 to 1.0)
                 const heatPercent = ((this.heatBandwidth - 0.1) / 0.9) * 100;
                 document.getElementById('heat-bandwidth-cursor').style.left = heatPercent + '%';
                 document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
-                console.log('Set heat bandwidth slider to:', heatPercent + '%');
 
                 // Restore coalesce slider position (exponential scale)
                 if (this.voronoiCoalesceKm === 0) {
                     document.getElementById('coalesce-cursor').style.left = '0%';
-                    console.log('Set coalesce slider to 0%');
                 } else {
                     const coalesceLogPosition = Math.log(this.voronoiCoalesceKm / 0.001) /
                                                 Math.log(CONFIG.MAX_VORONOI_COALESCE_KM / 0.001);
                     const coalescePercent = Math.max(0, Math.min(100, coalesceLogPosition * 100));
                     document.getElementById('coalesce-cursor').style.left = coalescePercent + '%';
-                    console.log('Set coalesce slider to:', coalescePercent + '%', '(' + this.voronoiCoalesceKm + 'km)');
                 }
 
                 // Update slider value displays
@@ -1475,8 +1442,6 @@
 
                 // Update UI for current mode
                 this.updateUIForMode();
-
-                console.log('restoreUIFromState() - Complete');
             }
 
             /**
@@ -2188,12 +2153,10 @@
                     if (this.loadedFromURL || previousMaxDistanceLimit !== null) {
                         // Keep current value but ensure it's within the new limits
                         this.maxDistanceKm = Math.max(0.01, Math.min(this.maxDistanceKm, this.maxDistanceLimit));
-                        console.log('Preserving distance from URL/user:', this.maxDistanceKm, 'km');
                     } else {
                         // First generation without URL params - use default
                         const defaultDistance = this.maxDistanceLimit * 0.12;
                         this.maxDistanceKm = Math.max(0.01, Math.min(defaultDistance, this.maxDistanceLimit));
-                        console.log('Using default distance:', this.maxDistanceKm, 'km');
                     }
 
                     // Clear the flag after first use
