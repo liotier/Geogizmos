@@ -2017,7 +2017,7 @@
                         e.preventDefault();
                         this.selectedQueryIndex = Math.max(this.selectedQueryIndex - 1, 0);
                         this.updateQueryDropdownSelection(items);
-                    } else if (e.key === 'Enter') {
+                    } else if (e.key === 'Enter' || e.key === 'Tab') {
                         if (this.selectedQueryIndex >= 0 && this.selectedQueryIndex < items.length) {
                             e.preventDefault();
                             items[this.selectedQueryIndex].click();
