@@ -1215,6 +1215,10 @@
                 // Initialize cache for API results
                 this.cache = new CacheDB();
 
+                // Taginfo autocomplete caches
+                this.taginfoKeysCache = null;  // Cache of popular OSM keys
+                this.taginfoValuesCache = {};   // Cache of values per key
+
                 // =================================================================
                 // Visualization Mode & Parameters
                 // =================================================================
@@ -2127,37 +2131,53 @@
 
             /**
              * Search Taginfo API for tag suggestions
+             * Fetches data once and caches it, then filters client-side for better performance
              * @param {Object} tagInfo - Current tag info from extractCurrentTag
              * @param {number} cursorPos - Cursor position
              */
             async searchQueryTags(tagInfo, cursorPos) {
                 try {
-                    let apiUrl;
-                    let searchTerm;
+                    let results;
 
                     if (tagInfo.isValue) {
-                        // Search for values of this key
-                        apiUrl = `https://taginfo.openstreetmap.org/api/4/key/values?key=${encodeURIComponent(tagInfo.key)}&page=1&rp=10&sortname=count&sortorder=desc`;
-                        if (tagInfo.value) {
-                            apiUrl += `&filter=${encodeURIComponent(tagInfo.value)}`;
+                        // Get values for this key
+                        if (!this.taginfoValuesCache[tagInfo.key]) {
+                            // Fetch and cache all values for this key (top 100)
+                            const apiUrl = `https://taginfo.openstreetmap.org/api/4/key/values?key=${encodeURIComponent(tagInfo.key)}&page=1&rp=100&sortname=count&sortorder=desc`;
+                            const response = await fetch(apiUrl);
+                            if (!response.ok) {
+                                throw new Error(`Taginfo API error: ${response.status}`);
+                            }
+                            const data = await response.json();
+                            this.taginfoValuesCache[tagInfo.key] = data.data || [];
                         }
-                        searchTerm = tagInfo.value || '';
+
+                        // Filter cached values client-side
+                        const searchTerm = (tagInfo.value || '').toLowerCase();
+                        results = this.taginfoValuesCache[tagInfo.key].filter(item =>
+                            item.value.toLowerCase().includes(searchTerm)
+                        );
                     } else {
-                        // Search for keys
-                        apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?page=1&rp=10&sortname=count&sortorder=desc`;
-                        if (tagInfo.key) {
-                            apiUrl += `&query=${encodeURIComponent(tagInfo.key)}`;
+                        // Get keys
+                        if (!this.taginfoKeysCache) {
+                            // Fetch and cache popular keys (top 100)
+                            const apiUrl = `https://taginfo.openstreetmap.org/api/4/keys/all?page=1&rp=100&sortname=count&sortorder=desc`;
+                            const response = await fetch(apiUrl);
+                            if (!response.ok) {
+                                throw new Error(`Taginfo API error: ${response.status}`);
+                            }
+                            const data = await response.json();
+                            this.taginfoKeysCache = data.data || [];
                         }
-                        searchTerm = tagInfo.key || '';
+
+                        // Filter cached keys client-side
+                        const searchTerm = (tagInfo.key || '').toLowerCase();
+                        results = this.taginfoKeysCache.filter(item =>
+                            item.key.toLowerCase().includes(searchTerm)
+                        );
                     }
 
-                    const response = await fetch(apiUrl);
-                    if (!response.ok) {
-                        throw new Error(`Taginfo API error: ${response.status}`);
-                    }
-
-                    const data = await response.json();
-                    this.showQueryResults(data.data || [], tagInfo, cursorPos);
+                    this.showQueryResults(results, tagInfo, cursorPos);
                 } catch (error) {
                     console.error('Taginfo search error:', error);
                     this.hideQueryDropdown();
