@@ -1354,12 +1354,18 @@
 
                 // Auto-execute query if both area and query are present
                 if (urlParams.area && urlParams.query) {
+                    console.log('Auto-executing query from URL:', urlParams.area, urlParams.query);
                     // Wait for map to be ready, then trigger generate
                     if (this.map.loaded()) {
-                        this.generate();
+                        // Small delay to ensure all initialization is complete
+                        setTimeout(() => {
+                            this.generate();
+                        }, 100);
                     } else {
                         this.map.once('load', () => {
-                            this.generate();
+                            setTimeout(() => {
+                                this.generate();
+                            }, 100);
                         });
                     }
                 }
@@ -1377,10 +1383,17 @@
                 // Switch to the correct basemap (important for URL params)
                 this.switchBasemap(this.currentBasemap);
 
-                // Set voronoi checkbox
+                // Set voronoi checkbox and show/hide controls
                 const voronoiCheckbox = document.getElementById('voronoi-overlay');
                 if (voronoiCheckbox) {
                     voronoiCheckbox.checked = this.showVoronoiBorders;
+                }
+                // Show/hide Voronoi controls based on checkbox state
+                const voronoiControls = document.getElementById('voronoi-controls');
+                if (this.showVoronoiBorders) {
+                    voronoiControls.classList.add('active');
+                } else {
+                    voronoiControls.classList.remove('active');
                 }
 
                 // Set visualization mode buttons
@@ -2135,15 +2148,24 @@
                     this.showStatus(`Found ${features.length} features. Creating ${modeText}...`);
                     
                     // Calculate max distance limit based on area
+                    const previousMaxDistanceLimit = this.maxDistanceLimit;
                     this.maxDistanceLimit = Math.round(Math.sqrt(areaSizeKm2) * 0.5);
-                    
-                    // Based on empirical testing, alter to a pleasing default in % of the calculated maximum
-                    const defaultDistance = this.maxDistanceLimit * 0.12;
-                    
-                    // Ensure minimum of 0.01km (10 meters) and maximum of maxDistanceLimit
-                    this.maxDistanceKm = Math.max(0.01, Math.min(defaultDistance, this.maxDistanceLimit));
+
+                    // Only set default distance if this is the first generation (no previous limit)
+                    // This preserves values loaded from URL or set by user
+                    if (previousMaxDistanceLimit === null) {
+                        // Based on empirical testing, alter to a pleasing default in % of the calculated maximum
+                        const defaultDistance = this.maxDistanceLimit * 0.12;
+
+                        // Ensure minimum of 0.01km (10 meters) and maximum of maxDistanceLimit
+                        this.maxDistanceKm = Math.max(0.01, Math.min(defaultDistance, this.maxDistanceLimit));
+                    } else {
+                        // Keep current value but ensure it's within the new limits
+                        this.maxDistanceKm = Math.max(0.01, Math.min(this.maxDistanceKm, this.maxDistanceLimit));
+                    }
+
                     this.computedMaxDistance = this.maxDistanceKm;
-                    
+
                     // Calculate position on exponential scale with 0.01 km minimum
                     const logPosition = Math.log(this.maxDistanceKm / 0.01) / Math.log(this.maxDistanceLimit / 0.01);
                     const percent = Math.max(0, Math.min(100, logPosition * 100));
