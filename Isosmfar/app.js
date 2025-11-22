@@ -2743,8 +2743,10 @@
 
             // Clean up resources when page is about to unload
             window.addEventListener('beforeunload', function() {
-                if (app && app.cleanup) {
+                try {
                     app.cleanup();
+                } catch (error) {
+                    console.error('Error during cleanup:', error);
                 }
             });
 
