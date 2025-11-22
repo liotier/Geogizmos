@@ -854,23 +854,22 @@ button.primary:hover:not(:disabled) {
 }
 
 /* Backdrop overlay for mobile menu */
-@media (max-width: 600px) {
-    body::before {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 1400;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-    }
+#mobile-backdrop {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1400;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
 
-    body.menu-open::before {
+@media (max-width: 600px) {
+    #mobile-backdrop.active {
+        display: block;
         opacity: 1;
-        pointer-events: all;
     }
 }

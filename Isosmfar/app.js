@@ -1539,15 +1539,18 @@
             async generate() {
                 const rawQuery = document.getElementById('query').value.trim();
                 const areaName = document.getElementById('area').value.trim();
-                
+
                 if (!rawQuery || !areaName) {
                     this.showMessage('Please enter both query and area', 'error');
                     return;
                 }
-                
+
+                // Clear old cache entries to prevent memory bloat
+                this.clearOldCacheEntries();
+
                 // Process the query with improved logic
                 let query = this.processOverpassFilter(rawQuery);
-                
+
                 try {
                     this.showStatus('Searching for area...');
                     
@@ -1945,10 +1948,102 @@
                 return features;
             }
             
+            /**
+             * Clean up WebGL resources to prevent memory leaks
+             * Deletes textures, buffers, and programs from previous visualizations
+             */
+            cleanupWebGLResources() {
+                if (!this.gradientFieldLayer || !this.gradientFieldLayer.gl) {
+                    return;
+                }
+
+                const gl = this.gradientFieldLayer.gl;
+                const layer = this.gradientFieldLayer;
+
+                try {
+                    // Delete textures
+                    if (layer.featuresTexture) {
+                        gl.deleteTexture(layer.featuresTexture);
+                        layer.featuresTexture = null;
+                    }
+                    if (layer.paletteTexture) {
+                        gl.deleteTexture(layer.paletteTexture);
+                        layer.paletteTexture = null;
+                    }
+                    if (layer.boundaryTexture) {
+                        gl.deleteTexture(layer.boundaryTexture);
+                        layer.boundaryTexture = null;
+                    }
+
+                    // Delete shader program
+                    if (layer.program) {
+                        gl.deleteProgram(layer.program);
+                        layer.program = null;
+                    }
+                } catch (error) {
+                    console.warn('Error cleaning up WebGL resources:', error);
+                }
+            }
+
+            /**
+             * Clear cached data that's no longer needed
+             * Helps prevent memory bloat from accumulated cache
+             */
+            clearOldCacheEntries() {
+                // Clear Taginfo caches periodically to prevent unbounded growth
+                const MAX_CACHE_ENTRIES = 100;
+
+                if (Object.keys(this.taginfoValuesCache).length > MAX_CACHE_ENTRIES) {
+                    // Keep only the most recently used entries
+                    const entries = Object.entries(this.taginfoValuesCache);
+                    this.taginfoValuesCache = Object.fromEntries(
+                        entries.slice(-MAX_CACHE_ENTRIES)
+                    );
+                }
+            }
+
+            /**
+             * Comprehensive cleanup method
+             * Called before regenerating or on page unload
+             */
+            cleanup() {
+                // Cancel any pending throttled updates
+                if (this.throttledVisualizationUpdate && this.throttledVisualizationUpdate.cancel) {
+                    this.throttledVisualizationUpdate.cancel();
+                }
+
+                // Clear all pending timers
+                if (this.searchTimeout) {
+                    clearTimeout(this.searchTimeout);
+                    this.searchTimeout = null;
+                }
+                if (this.voronoiUpdateTimer) {
+                    clearTimeout(this.voronoiUpdateTimer);
+                    this.voronoiUpdateTimer = null;
+                }
+                if (this.querySearchTimeout) {
+                    clearTimeout(this.querySearchTimeout);
+                    this.querySearchTimeout = null;
+                }
+
+                // Clean up WebGL resources
+                this.cleanupWebGLResources();
+
+                // Release references to large objects
+                this.lastResults = null;
+                this.originalFeatures = null;
+                this.voronoiGeoJSON = null;
+                this.areaBoundary = null;
+            }
+
             renderWebGL(features, boundary, bounds) {
-                // Remove existing layers
+                // Clean up existing WebGL resources before creating new ones
+                this.cleanupWebGLResources();
+
+                // Remove existing layers and sources
                 if (this.gradientFieldLayer) {
                     this.map.removeLayer('gradient-field');
+                    this.gradientFieldLayer = null;
                 }
                 if (this.map.getLayer('boundary-outline')) {
                     this.map.removeLayer('boundary-outline');
@@ -2621,52 +2716,92 @@
         // APPLICATION INITIALIZATION
         // ============================================================================
 
-        // Initialize app when DOM is ready
-        const app = new IsosmfarApp();
-
-        // ============================================================================
-        // MOBILE MENU TOGGLE
-        // ============================================================================
-
-        // Create and add mobile menu toggle button
-        const menuToggle = document.createElement('button');
-        menuToggle.id = 'menu-toggle';
-        menuToggle.setAttribute('aria-label', 'Toggle menu');
-        menuToggle.innerHTML = '<span></span><span></span><span></span>';
-        document.body.insertBefore(menuToggle, document.body.firstChild);
-
-        const sidebar = document.getElementById('sidebar');
-
-        // Toggle menu on button click
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            sidebar.classList.toggle('open');
-            menuToggle.classList.toggle('active');
-            document.body.classList.toggle('menu-open');
-        });
-
-        // Close menu when clicking on backdrop (mobile only)
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 600 &&
-                sidebar.classList.contains('open') &&
-                !sidebar.contains(e.target) &&
-                e.target !== menuToggle) {
-                sidebar.classList.remove('open');
-                menuToggle.classList.remove('active');
-                document.body.classList.remove('menu-open');
+        /**
+         * Initialize the application when all libraries are loaded
+         */
+        function initializeApp() {
+            // Check if required libraries are loaded
+            if (typeof maplibregl === 'undefined') {
+                console.error('MapLibre GL JS not loaded');
+                return;
             }
-        });
+            if (typeof turf === 'undefined') {
+                console.error('Turf.js not loaded');
+                return;
+            }
+            if (typeof d3 === 'undefined') {
+                console.error('D3 Delaunay not loaded');
+                return;
+            }
 
-        // Close menu when selecting an area or after generating
-        const generateButton = document.getElementById('generate');
-        if (generateButton) {
-            generateButton.addEventListener('click', function() {
-                if (window.innerWidth <= 600) {
-                    setTimeout(() => {
-                        sidebar.classList.remove('open');
-                        menuToggle.classList.remove('active');
-                        document.body.classList.remove('menu-open');
-                    }, 300);
+            // Initialize app
+            const app = new IsosmfarApp();
+
+            // ============================================================================
+            // CLEANUP ON PAGE UNLOAD - Prevent memory leaks
+            // ============================================================================
+
+            // Clean up resources when page is about to unload
+            window.addEventListener('beforeunload', function() {
+                try {
+                    app.cleanup();
+                } catch (error) {
+                    console.error('Error during cleanup:', error);
                 }
             });
+
+            // ============================================================================
+            // MOBILE MENU TOGGLE
+            // ============================================================================
+
+            // Create and add mobile menu toggle button
+            const menuToggle = document.createElement('button');
+            menuToggle.id = 'menu-toggle';
+            menuToggle.setAttribute('aria-label', 'Toggle menu');
+            menuToggle.innerHTML = '<span></span><span></span><span></span>';
+            document.body.insertBefore(menuToggle, document.body.firstChild);
+
+            // Create backdrop element
+            const backdrop = document.createElement('div');
+            backdrop.id = 'mobile-backdrop';
+            document.body.appendChild(backdrop);
+
+            const sidebar = document.getElementById('sidebar');
+
+            // Toggle menu on button click
+            menuToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('open');
+                menuToggle.classList.toggle('active');
+                backdrop.classList.toggle('active');
+            });
+
+            // Close menu when clicking on backdrop
+            backdrop.addEventListener('click', function() {
+                sidebar.classList.remove('open');
+                menuToggle.classList.remove('active');
+                backdrop.classList.remove('active');
+            });
+
+            // Close menu when selecting an area or after generating
+            const generateButton = document.getElementById('generate');
+            if (generateButton) {
+                generateButton.addEventListener('click', function() {
+                    if (window.innerWidth <= 600) {
+                        setTimeout(() => {
+                            sidebar.classList.remove('open');
+                            menuToggle.classList.remove('active');
+                            backdrop.classList.remove('active');
+                        }, 300);
+                    }
+                });
+            }
+        }
+
+        // Initialize when DOM and scripts are ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            // DOM already loaded, initialize immediately
+            initializeApp();
         }
