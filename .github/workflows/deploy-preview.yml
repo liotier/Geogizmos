@@ -108,13 +108,13 @@ jobs:
           script: |
             const branchName = '${{ steps.extract_branch.outputs.branch }}';
             const safeBranch = '${{ steps.extract_branch.outputs.safe_branch }}';
-            const previewUrl = `https://${{ github.repository_owner }}.github.io/Geogizmos/preview/${safeBranch}/Isosmfar/`;
+            const previewUrl = 'https://${{ github.repository_owner }}.github.io/Geogizmos/preview/' + safeBranch + '/Isosmfar/';
 
             // Find PR for this branch
             const { data: pulls } = await github.rest.pulls.list({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              head: `${context.repo.owner}:${branchName}`,
+              head: context.repo.owner + ':' + branchName,
               state: 'open'
             });
 
@@ -133,13 +133,10 @@ jobs:
                 comment.body.includes('Preview deployment')
               );
 
-              const commentBody = `## 🚀 Preview Deployment Ready!
-
-**Preview URL:** ${previewUrl}
-
-**Branch:** \`${branchName}\`
-
-This preview will update automatically with each push to this branch.`;
+              const commentBody = '## 🚀 Preview Deployment Ready!\n\n' +
+                '**Preview URL:** ' + previewUrl + '\n\n' +
+                '**Branch:** `' + branchName + '`\n\n' +
+                'This preview will update automatically with each push to this branch.';
 
               if (botComment) {
                 await github.rest.issues.updateComment({
