@@ -1538,6 +1538,9 @@
             
             async generate() {
                 try {
+                    this.showStatus('Starting generation...');
+                    await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI update
+
                     const rawQuery = document.getElementById('query').value.trim();
                     const areaName = document.getElementById('area').value.trim();
 
@@ -1546,6 +1549,9 @@
                         return;
                     }
 
+                    this.showStatus('Processing query...');
+                    await new Promise(resolve => setTimeout(resolve, 50));
+
                     // Clear old cache entries to prevent memory bloat
                     this.clearOldCacheEntries();
 
@@ -1553,6 +1559,7 @@
                     let query = this.processOverpassFilter(rawQuery);
 
                     this.showStatus('Searching for area...');
+                    await new Promise(resolve => setTimeout(resolve, 50));
                     
                     if (!this.selectedArea || !this.selectedArea.display_name.includes(areaName)) {
                         const areaResponse = await fetch(
@@ -1633,14 +1640,20 @@
                     });
                     
                     const bounds = turf.bbox(boundary);
-                    
+
                     // Store original features and boundary
                     this.originalFeatures = features;
                     this.areaBoundary = boundary;
-                    
+
+                    this.showStatus('Computing Voronoi diagram...');
+                    await new Promise(resolve => setTimeout(resolve, 50));
+
                     // Compute Voronoi diagram
                     this.computeVoronoi(features, bounds, boundary);
-                    
+
+                    this.showStatus('Rendering visualization...');
+                    await new Promise(resolve => setTimeout(resolve, 50));
+
                     this.renderWebGL(features, boundary, bounds);
                     
                     this.lastResults = { features, boundary, bounds };
