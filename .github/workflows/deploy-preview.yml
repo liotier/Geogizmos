@@ -33,6 +33,24 @@ jobs:
         with:
           ref: gh-pages
           path: gh-pages
+        continue-on-error: true
+
+      - name: Create gh-pages if it doesn't exist
+        run: |
+          if [ ! -d "gh-pages/.git" ]; then
+            echo "gh-pages branch doesn't exist, creating it..."
+            mkdir -p gh-pages
+            cd gh-pages
+            git init
+            git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git checkout -b gh-pages
+            echo "<h1>Geogizmos Previews</h1>" > index.html
+            git add index.html
+            git commit -m "Initialize gh-pages branch"
+            git push -u origin gh-pages
+          fi
 
       - name: Deploy to preview directory
         run: |
