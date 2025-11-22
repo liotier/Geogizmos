@@ -808,7 +808,6 @@
             
             initPaletteSelector() {
                 const dropdown = document.getElementById('palette-dropdown');
-                const selectedDisplay = document.getElementById('selected-gradient');
                 const selectedContainer = document.getElementById('palette-selected');
                 
                 // Create dropdown options with visual gradients
@@ -1527,18 +1526,12 @@
                 
                 // Check if the query starts with [ and ends with ]
                 const hasOuterBrackets = query.startsWith('[') && query.endsWith(']');
-                
-                // Check if there are any brackets at all in the query
-                const hasBrackets = query.includes('[') || query.includes(']');
-                
+
                 if (hasOuterBrackets) {
                     // Already properly bracketed - use as-is
                     return query;
-                } else if (hasBrackets) {
-                    // Partial brackets detected - likely malformed, wrap the whole thing
-                    return `[${query}]`;
                 } else {
-                    // Simple format without any brackets - add them
+                    // No outer brackets or partial brackets - wrap the whole thing
                     return `[${query}]`;
                 }
             }
