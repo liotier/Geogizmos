@@ -2621,52 +2621,79 @@
         // APPLICATION INITIALIZATION
         // ============================================================================
 
-        // Initialize app when DOM is ready
-        const app = new IsosmfarApp();
+        /**
+         * Initialize the application when all libraries are loaded
+         */
+        function initializeApp() {
+            // Check if required libraries are loaded
+            if (typeof maplibregl === 'undefined') {
+                console.error('MapLibre GL JS not loaded');
+                return;
+            }
+            if (typeof turf === 'undefined') {
+                console.error('Turf.js not loaded');
+                return;
+            }
+            if (typeof d3 === 'undefined') {
+                console.error('D3 Delaunay not loaded');
+                return;
+            }
 
-        // ============================================================================
-        // MOBILE MENU TOGGLE
-        // ============================================================================
+            // Initialize app
+            const app = new IsosmfarApp();
 
-        // Create and add mobile menu toggle button
-        const menuToggle = document.createElement('button');
-        menuToggle.id = 'menu-toggle';
-        menuToggle.setAttribute('aria-label', 'Toggle menu');
-        menuToggle.innerHTML = '<span></span><span></span><span></span>';
-        document.body.insertBefore(menuToggle, document.body.firstChild);
+            // ============================================================================
+            // MOBILE MENU TOGGLE
+            // ============================================================================
 
-        const sidebar = document.getElementById('sidebar');
+            // Create and add mobile menu toggle button
+            const menuToggle = document.createElement('button');
+            menuToggle.id = 'menu-toggle';
+            menuToggle.setAttribute('aria-label', 'Toggle menu');
+            menuToggle.innerHTML = '<span></span><span></span><span></span>';
+            document.body.insertBefore(menuToggle, document.body.firstChild);
 
-        // Toggle menu on button click
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            sidebar.classList.toggle('open');
-            menuToggle.classList.toggle('active');
-            document.body.classList.toggle('menu-open');
-        });
+            // Create backdrop element
+            const backdrop = document.createElement('div');
+            backdrop.id = 'mobile-backdrop';
+            document.body.appendChild(backdrop);
 
-        // Close menu when clicking on backdrop (mobile only)
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 600 &&
-                sidebar.classList.contains('open') &&
-                !sidebar.contains(e.target) &&
-                e.target !== menuToggle) {
+            const sidebar = document.getElementById('sidebar');
+
+            // Toggle menu on button click
+            menuToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('open');
+                menuToggle.classList.toggle('active');
+                backdrop.classList.toggle('active');
+            });
+
+            // Close menu when clicking on backdrop
+            backdrop.addEventListener('click', function() {
                 sidebar.classList.remove('open');
                 menuToggle.classList.remove('active');
-                document.body.classList.remove('menu-open');
-            }
-        });
-
-        // Close menu when selecting an area or after generating
-        const generateButton = document.getElementById('generate');
-        if (generateButton) {
-            generateButton.addEventListener('click', function() {
-                if (window.innerWidth <= 600) {
-                    setTimeout(() => {
-                        sidebar.classList.remove('open');
-                        menuToggle.classList.remove('active');
-                        document.body.classList.remove('menu-open');
-                    }, 300);
-                }
+                backdrop.classList.remove('active');
             });
+
+            // Close menu when selecting an area or after generating
+            const generateButton = document.getElementById('generate');
+            if (generateButton) {
+                generateButton.addEventListener('click', function() {
+                    if (window.innerWidth <= 600) {
+                        setTimeout(() => {
+                            sidebar.classList.remove('open');
+                            menuToggle.classList.remove('active');
+                            backdrop.classList.remove('active');
+                        }, 300);
+                    }
+                });
+            }
+        }
+
+        // Initialize when DOM and scripts are ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            // DOM already loaded, initialize immediately
+            initializeApp();
         }
