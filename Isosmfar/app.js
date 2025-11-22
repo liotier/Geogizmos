@@ -1537,21 +1537,21 @@
             }
             
             async generate() {
-                const rawQuery = document.getElementById('query').value.trim();
-                const areaName = document.getElementById('area').value.trim();
-
-                if (!rawQuery || !areaName) {
-                    this.showMessage('Please enter both query and area', 'error');
-                    return;
-                }
-
-                // Clear old cache entries to prevent memory bloat
-                this.clearOldCacheEntries();
-
-                // Process the query with improved logic
-                let query = this.processOverpassFilter(rawQuery);
-
                 try {
+                    const rawQuery = document.getElementById('query').value.trim();
+                    const areaName = document.getElementById('area').value.trim();
+
+                    if (!rawQuery || !areaName) {
+                        this.showMessage('Please enter both query and area', 'error');
+                        return;
+                    }
+
+                    // Clear old cache entries to prevent memory bloat
+                    this.clearOldCacheEntries();
+
+                    // Process the query with improved logic
+                    let query = this.processOverpassFilter(rawQuery);
+
                     this.showStatus('Searching for area...');
                     
                     if (!this.selectedArea || !this.selectedArea.display_name.includes(areaName)) {
@@ -1648,9 +1648,10 @@
                     document.getElementById('export-png').disabled = false;
                     
                     this.hideStatus();
-                    
+
                 } catch (error) {
-                    this.showMessage(error.message, 'error');
+                    console.error('Error in generate():', error);
+                    this.showMessage(error.message || 'An error occurred', 'error');
                     this.hideStatus();
                 }
             }
@@ -1993,12 +1994,16 @@
                 // Clear Taginfo caches periodically to prevent unbounded growth
                 const MAX_CACHE_ENTRIES = 100;
 
-                if (Object.keys(this.taginfoValuesCache).length > MAX_CACHE_ENTRIES) {
-                    // Keep only the most recently used entries
-                    const entries = Object.entries(this.taginfoValuesCache);
-                    this.taginfoValuesCache = Object.fromEntries(
-                        entries.slice(-MAX_CACHE_ENTRIES)
-                    );
+                try {
+                    if (this.taginfoValuesCache && Object.keys(this.taginfoValuesCache).length > MAX_CACHE_ENTRIES) {
+                        // Keep only the most recently used entries
+                        const entries = Object.entries(this.taginfoValuesCache);
+                        this.taginfoValuesCache = Object.fromEntries(
+                            entries.slice(-MAX_CACHE_ENTRIES)
+                        );
+                    }
+                } catch (error) {
+                    console.warn('Error clearing cache entries:', error);
                 }
             }
 
