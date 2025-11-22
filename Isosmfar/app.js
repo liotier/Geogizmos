@@ -1539,15 +1539,18 @@
             async generate() {
                 const rawQuery = document.getElementById('query').value.trim();
                 const areaName = document.getElementById('area').value.trim();
-                
+
                 if (!rawQuery || !areaName) {
                     this.showMessage('Please enter both query and area', 'error');
                     return;
                 }
-                
+
+                // Clear old cache entries to prevent memory bloat
+                this.clearOldCacheEntries();
+
                 // Process the query with improved logic
                 let query = this.processOverpassFilter(rawQuery);
-                
+
                 try {
                     this.showStatus('Searching for area...');
                     
@@ -1945,10 +1948,102 @@
                 return features;
             }
             
+            /**
+             * Clean up WebGL resources to prevent memory leaks
+             * Deletes textures, buffers, and programs from previous visualizations
+             */
+            cleanupWebGLResources() {
+                if (!this.gradientFieldLayer || !this.gradientFieldLayer.gl) {
+                    return;
+                }
+
+                const gl = this.gradientFieldLayer.gl;
+                const layer = this.gradientFieldLayer;
+
+                try {
+                    // Delete textures
+                    if (layer.featuresTexture) {
+                        gl.deleteTexture(layer.featuresTexture);
+                        layer.featuresTexture = null;
+                    }
+                    if (layer.paletteTexture) {
+                        gl.deleteTexture(layer.paletteTexture);
+                        layer.paletteTexture = null;
+                    }
+                    if (layer.boundaryTexture) {
+                        gl.deleteTexture(layer.boundaryTexture);
+                        layer.boundaryTexture = null;
+                    }
+
+                    // Delete shader program
+                    if (layer.program) {
+                        gl.deleteProgram(layer.program);
+                        layer.program = null;
+                    }
+                } catch (error) {
+                    console.warn('Error cleaning up WebGL resources:', error);
+                }
+            }
+
+            /**
+             * Clear cached data that's no longer needed
+             * Helps prevent memory bloat from accumulated cache
+             */
+            clearOldCacheEntries() {
+                // Clear Taginfo caches periodically to prevent unbounded growth
+                const MAX_CACHE_ENTRIES = 100;
+
+                if (Object.keys(this.taginfoValuesCache).length > MAX_CACHE_ENTRIES) {
+                    // Keep only the most recently used entries
+                    const entries = Object.entries(this.taginfoValuesCache);
+                    this.taginfoValuesCache = Object.fromEntries(
+                        entries.slice(-MAX_CACHE_ENTRIES)
+                    );
+                }
+            }
+
+            /**
+             * Comprehensive cleanup method
+             * Called before regenerating or on page unload
+             */
+            cleanup() {
+                // Cancel any pending throttled updates
+                if (this.throttledVisualizationUpdate && this.throttledVisualizationUpdate.cancel) {
+                    this.throttledVisualizationUpdate.cancel();
+                }
+
+                // Clear all pending timers
+                if (this.searchTimeout) {
+                    clearTimeout(this.searchTimeout);
+                    this.searchTimeout = null;
+                }
+                if (this.voronoiUpdateTimer) {
+                    clearTimeout(this.voronoiUpdateTimer);
+                    this.voronoiUpdateTimer = null;
+                }
+                if (this.querySearchTimeout) {
+                    clearTimeout(this.querySearchTimeout);
+                    this.querySearchTimeout = null;
+                }
+
+                // Clean up WebGL resources
+                this.cleanupWebGLResources();
+
+                // Release references to large objects
+                this.lastResults = null;
+                this.originalFeatures = null;
+                this.voronoiGeoJSON = null;
+                this.areaBoundary = null;
+            }
+
             renderWebGL(features, boundary, bounds) {
-                // Remove existing layers
+                // Clean up existing WebGL resources before creating new ones
+                this.cleanupWebGLResources();
+
+                // Remove existing layers and sources
                 if (this.gradientFieldLayer) {
                     this.map.removeLayer('gradient-field');
+                    this.gradientFieldLayer = null;
                 }
                 if (this.map.getLayer('boundary-outline')) {
                     this.map.removeLayer('boundary-outline');
@@ -2641,6 +2736,17 @@
 
             // Initialize app
             const app = new IsosmfarApp();
+
+            // ============================================================================
+            // CLEANUP ON PAGE UNLOAD - Prevent memory leaks
+            // ============================================================================
+
+            // Clean up resources when page is about to unload
+            window.addEventListener('beforeunload', function() {
+                if (app && app.cleanup) {
+                    app.cleanup();
+                }
+            });
 
             // ============================================================================
             // MOBILE MENU TOGGLE
