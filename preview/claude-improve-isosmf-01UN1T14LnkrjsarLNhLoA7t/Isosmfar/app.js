@@ -2,9 +2,10 @@
         // CONFIGURATION CONSTANTS
         // ============================================================================
 
-        // Detect mobile devices for memory optimization
+        // Detect mobile/tablet devices for memory optimization
+        // Include tablets (up to 1280px) to prevent WebGL context loss
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-                         || window.innerWidth <= 768;
+                         || (window.innerWidth <= 1280 && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
 
         const CONFIG = {
             // API Configuration
