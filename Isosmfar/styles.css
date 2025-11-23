@@ -393,18 +393,35 @@ button.primary:hover:not(:disabled) {
 }
 
 #status {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(44, 62, 80, 0.95);
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(44, 62, 80, 0.98);
     color: white;
-    padding: 12px 20px;
+    padding: 16px 24px;
     display: none;
+    z-index: 10000;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    min-width: 200px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 500;
 }
 
 #status.active {
     display: block;
+}
+
+@media (max-width: 600px) {
+    #status {
+        bottom: 80px;
+        padding: 20px 28px;
+        font-size: 18px;
+        min-width: 80%;
+        max-width: 90%;
+    }
 }
 
 #progress-bar {

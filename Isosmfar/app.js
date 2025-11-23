@@ -1649,23 +1649,44 @@
                     await new Promise(resolve => setTimeout(resolve, 50));
 
                     // Compute Voronoi diagram
-                    this.computeVoronoi(features, bounds, boundary);
+                    try {
+                        this.computeVoronoi(features, bounds, boundary);
+                    } catch (voronoiError) {
+                        console.error('Voronoi computation error:', voronoiError);
+                        throw new Error('Failed to compute Voronoi diagram: ' + voronoiError.message);
+                    }
 
                     this.showStatus('Rendering visualization...');
                     await new Promise(resolve => setTimeout(resolve, 50));
 
-                    this.renderWebGL(features, boundary, bounds);
-                    
+                    try {
+                        this.renderWebGL(features, boundary, bounds);
+                    } catch (renderError) {
+                        console.error('WebGL rendering error:', renderError);
+                        throw new Error('Failed to render map: ' + renderError.message);
+                    }
+
                     this.lastResults = { features, boundary, bounds };
-                    
+
                     document.getElementById('export-png').disabled = false;
-                    
+
+                    this.showStatus('✓ Complete!');
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                     this.hideStatus();
 
                 } catch (error) {
                     console.error('Error in generate():', error);
-                    this.showMessage(error.message || 'An error occurred', 'error');
-                    this.hideStatus();
+                    const errorMsg = error.message || 'An error occurred';
+                    this.showMessage(errorMsg, 'error');
+
+                    // Make errors impossible to miss on mobile
+                    this.showStatus('❌ Error: ' + errorMsg);
+                    setTimeout(() => this.hideStatus(), 5000);
+
+                    // Also use alert for critical visibility on mobile
+                    if (window.innerWidth <= 600) {
+                        setTimeout(() => alert('Error: ' + errorMsg), 100);
+                    }
                 }
             }
             
