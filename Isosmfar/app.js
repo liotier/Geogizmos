@@ -882,6 +882,20 @@
                     zoom: initialZoom
                 });
 
+                // Add WebGL context loss detection for mobile debugging
+                const canvas = this.map.getCanvas();
+                canvas.addEventListener('webglcontextlost', (event) => {
+                    event.preventDefault();
+                    console.error('WebGL context lost!');
+                    alert('WebGL context lost! This can happen on mobile due to memory constraints.');
+                    this.showStatus('❌ WebGL context lost - try reloading');
+                }, false);
+
+                canvas.addEventListener('webglcontextrestored', () => {
+                    console.log('WebGL context restored');
+                    this.showStatus('WebGL context restored');
+                }, false);
+
                 this.map.addControl(new maplibregl.NavigationControl());
 
                 // Save map position to URL when user moves the map
@@ -1664,6 +1678,17 @@
                     } catch (renderError) {
                         console.error('WebGL rendering error:', renderError);
                         throw new Error('Failed to render map: ' + renderError.message);
+                    }
+
+                    // Verify rendering succeeded
+                    console.log('Render complete - verifying map state...');
+                    console.log('Map exists:', !!this.map);
+                    console.log('Gradient layer exists:', !!this.gradientFieldLayer);
+                    console.log('Map has gradient-field layer:', !!this.map.getLayer('gradient-field'));
+                    console.log('Canvas visible:', this.map.getCanvas().style.display);
+
+                    if (!this.map.getLayer('gradient-field')) {
+                        throw new Error('Gradient layer missing after render!');
                     }
 
                     this.lastResults = { features, boundary, bounds };
