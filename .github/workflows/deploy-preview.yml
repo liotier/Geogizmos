@@ -28,43 +28,16 @@ jobs:
           echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
 
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
-        continue-on-error: true
-
-      - name: Create gh-pages if it doesn't exist
+      - name: Prepare deployment directory
         run: |
-          if [ ! -d "gh-pages/.git" ]; then
-            echo "gh-pages branch doesn't exist, creating it..."
-            mkdir -p gh-pages
-            cd gh-pages
-            git init
-            git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git checkout -b gh-pages
-            echo "<h1>Geogizmos Previews</h1>" > index.html
-            git add index.html
-            git commit -m "Initialize gh-pages branch"
-            git push -u origin gh-pages
-          fi
+          # Create deployment structure
+          mkdir -p deploy/preview/${{ steps.extract_branch.outputs.safe_branch }}
 
-      - name: Deploy to preview directory
-        run: |
-          PREVIEW_DIR="gh-pages/preview/${{ steps.extract_branch.outputs.safe_branch }}"
+          # Copy all project files to the preview directory
+          rsync -av --exclude='.git' --exclude='.github' --exclude='deploy' . deploy/preview/${{ steps.extract_branch.outputs.safe_branch }}/
 
-          # Create preview directory
-          mkdir -p "$PREVIEW_DIR"
-
-          # Copy all files except .git and gh-pages directory
-          rsync -av --exclude='.git' --exclude='gh-pages' --exclude='.github' . "$PREVIEW_DIR/"
-
-          # Generate index page for preview directory listing
-          cd gh-pages/preview
-          cat > index.html << 'EOF'
+          # Create preview index page
+          cat > deploy/preview/index.html << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
@@ -76,48 +49,25 @@ jobs:
                   li { padding: 10px; border-bottom: 1px solid #ddd; }
                   a { color: #3498db; text-decoration: none; font-size: 18px; }
                   a:hover { text-decoration: underline; }
-                  .date { color: #7f8c8d; font-size: 14px; margin-left: 10px; }
               </style>
           </head>
           <body>
               <h1>🚀 Geogizmos Preview Deployments</h1>
-              <p>Active preview deployments for Claude branches:</p>
-              <ul id="previews"></ul>
-              <script>
-                  const dirs = [];
-          EOF
-
-          # Add all preview directories to the list
-          for dir in */; do
-              if [ "$dir" != "./" ]; then
-                  dirname="${dir%/}"
-                  echo "        dirs.push('$dirname');" >> index.html
-              fi
-          done
-
-          cat >> index.html << 'EOF'
-                  const list = document.getElementById('previews');
-                  dirs.sort().reverse().forEach(dir => {
-                      const li = document.createElement('li');
-                      const a = document.createElement('a');
-                      a.href = dir + '/Isosmfar/';
-                      a.textContent = dir;
-                      li.appendChild(a);
-                      list.appendChild(li);
-                  });
-              </script>
+              <p>Active preview deployment:</p>
+              <ul>
+                  <li><a href="${{ steps.extract_branch.outputs.safe_branch }}/Isosmfar/">${{ steps.extract_branch.outputs.safe_branch }}</a></li>
+              </ul>
           </body>
           </html>
           EOF
 
-      - name: Commit and push to gh-pages
-        working-directory: gh-pages
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Deploy preview for ${{ steps.extract_branch.outputs.branch }}" || echo "No changes to commit"
-          git push
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          keep_files: true
+          destination_dir: .
 
       - name: Comment on PR with preview URL
         uses: actions/github-script@v7
@@ -148,7 +98,7 @@ jobs:
 
               const botComment = comments.find(comment =>
                 comment.user.type === 'Bot' &&
-                comment.body.includes('Preview deployment')
+                comment.body.includes('Preview Deployment Ready')
               );
 
               const commentBody = '## 🚀 Preview Deployment Ready!\n\n' +
