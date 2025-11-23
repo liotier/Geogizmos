@@ -36,21 +36,7 @@ jobs:
           # Copy all project files to the preview directory
           rsync -av --exclude='.git' --exclude='.github' --exclude='deploy' . deploy/preview/${{ steps.extract_branch.outputs.safe_branch }}/
 
-          # Create root index page (redirects to preview listing)
-          cat > deploy/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-              <meta http-equiv="refresh" content="0; url=preview/">
-              <title>Geogizmos - Redirecting...</title>
-          </head>
-          <body>
-              <p>Redirecting to <a href="preview/">preview deployments</a>...</p>
-          </body>
-          </html>
-          EOF
-
-          # Create preview index page
+          # Create preview index page (do NOT create root index to avoid overwriting production)
           cat > deploy/preview/index.html << 'EOF'
           <!DOCTYPE html>
           <html>

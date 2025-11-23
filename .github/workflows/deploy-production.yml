@@ -1,0 +1,39 @@
+name: Deploy Production to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare production deployment
+        run: |
+          # Create deployment directory structure
+          mkdir -p deploy
+
+          # Copy production files to deploy directory
+          cp -r Isosmfar deploy/
+          cp -r Inundator deploy/
+          cp index.html deploy/
+
+          # Create .nojekyll to disable Jekyll processing
+          touch deploy/.nojekyll
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          keep_files: true  # Keep preview directory
+          destination_dir: .
+          commit_message: "Deploy production from main branch"
