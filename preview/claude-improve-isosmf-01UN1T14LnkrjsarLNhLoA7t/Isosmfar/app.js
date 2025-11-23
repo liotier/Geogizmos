@@ -2,6 +2,10 @@
         // CONFIGURATION CONSTANTS
         // ============================================================================
 
+        // Detect mobile devices for memory optimization
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+                         || window.innerWidth <= 768;
+
         const CONFIG = {
             // API Configuration
             OVERPASS_API_URL: 'https://overpass-api.de/api/interpreter',
@@ -12,13 +16,14 @@
             MAX_RETRIES: 3,
             RETRY_DELAYS: [1000, 2000, 4000], // Exponential backoff in ms
 
-            // WebGL Configuration
-            MAX_FEATURES: 5000,
-            TEXTURE_SIZE: 128,
+            // WebGL Configuration (optimized for mobile to prevent context loss)
+            MAX_FEATURES: isMobile ? 1000 : 5000,
+            TEXTURE_SIZE: isMobile ? 64 : 128,
             WEBGL_CONTEXT_OPTIONS: {
                 alpha: true,
-                antialias: true,
-                preserveDrawingBuffer: true
+                antialias: !isMobile, // Disable antialiasing on mobile to save memory
+                preserveDrawingBuffer: true,
+                failIfMajorPerformanceCaveat: false // Allow software rendering if needed
             },
 
             // Visualization Defaults
@@ -467,6 +472,15 @@
 
                 // Wait for map to be fully loaded before restoring UI and auto-executing
                 this.map.once('load', () => {
+                    // Show mobile optimization info
+                    if (isMobile) {
+                        console.log('Mobile device detected - using optimized settings:');
+                        console.log(`- Max features: ${CONFIG.MAX_FEATURES} (reduced from 5000)`);
+                        console.log(`- Texture size: ${CONFIG.TEXTURE_SIZE}x${CONFIG.TEXTURE_SIZE} (reduced from 128x128)`);
+                        console.log('- Antialiasing disabled');
+                        console.log('Tip: Use smaller areas or simpler queries to avoid memory issues');
+                    }
+
                     // Restore UI to match loaded state
                     this.restoreUIFromState();
                     // Auto-execute query if URL has area and query
@@ -1659,10 +1673,10 @@
                     this.originalFeatures = features;
                     this.areaBoundary = boundary;
 
-                    this.showStatus('Computing Voronoi diagram...');
+                    this.showStatus('Computing distance field...');
                     await new Promise(resolve => setTimeout(resolve, 50));
 
-                    // Compute Voronoi diagram
+                    // Compute Voronoi diagram (used internally for distance calculations)
                     try {
                         this.computeVoronoi(features, bounds, boundary);
                     } catch (voronoiError) {
