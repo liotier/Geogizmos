@@ -4,6 +4,8 @@ Interactive reservoir inundation simulation visualization tool. Draw a dam on a 
 
 The whole Tarentaise valley flooded in five minutes ? Sure !
 
+Try it: https://liotier.github.io/Geogizmos/Inundator/
+
 ![screenshot](Screenshot_2025-11-20_Inundator_Interactive_Reservoir_Inundation_Simulator.png)
 
 ## Features
