@@ -2,7 +2,7 @@
 
 **Isosmfar** is an interactive web application for exploring **iso-distance fields** based on Openstreetmap (OSM) data. It lets you visualize how far every location in a chosen area is from features that match a query (e.g. schools, hospitals, bus stops, restaurants, etc.).
 
-The app is fully self-contained in a single file - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
+The app is a static web application split across a handful of files (`index.html`, `app.js`, `styles.css`, `manifest.json`, and a small `icons/` directory) – with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
 
 I love Openstreetmap !
 
@@ -156,7 +156,7 @@ Isosmfar showcases several sophisticated web development techniques:
 
 Since Isosmfar is a static single-page application:
 
-- Run locally by opening `Isosmfar.html` in any modern browser
+- Run locally by opening `index.html` in any modern browser
 - Host on GitHub Pages, Netlify, or any static hosting service
 - Embed in existing applications as an iframe
 - Fork and customize for domain-specific use cases
