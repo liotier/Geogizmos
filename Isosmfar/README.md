@@ -2,7 +2,7 @@
 
 **Isosmfar** is an interactive web application for exploring **iso-distance fields** based on Openstreetmap (OSM) data. It lets you visualize how far every location in a chosen area is from features that match a query (e.g. schools, hospitals, bus stops, restaurants, etc.).
 
-The app is fully self-contained in a single file - with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
+The app is a static web application split across a handful of files (`index.html`, `app.js`, `styles.css`, `manifest.json`, and a small `icons/` directory) – with the notable exception of being entirely dependent and built on the whole Openstreetmap universe... Isosmfar is nothing without Openstreetmap data and services.
 
 I love Openstreetmap !
 
@@ -154,15 +154,17 @@ Isosmfar showcases several sophisticated web development techniques:
 
 ## 📦 Deployment
 
-Since Isosmfar is a static single-page application:
+Since Isosmfar is a static web application, deployment is trivial:
 
-- Run locally by opening `Isosmfar.html` in any modern browser
 - Host on GitHub Pages, Netlify, or any static hosting service
 - Embed in existing applications as an iframe
 - Fork and customize for domain-specific use cases
 - **Install as PWA** – add to home screen on mobile/desktop for offline access
+- For development, serve with any local HTTP server (e.g. `python -m http.server`)
 
 **No server infrastructure required** – just static file hosting and access to public Openstreetmap services.
+
+> **Note:** Isosmfar is fundamentally dependent on online services: map tiles, the Overpass API for OSM queries, and Nominatim for geocoding. The PWA offline mode preserves previously cached query results and app assets between sessions, but a working internet connection is required for any new query or area search.
 
 ### Offline Usage
 
