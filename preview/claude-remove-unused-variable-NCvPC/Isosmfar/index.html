@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- SEO meta description -->
+    <meta name="description" content="Interactive web app to visualize distance, density and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.">
+
+    <!-- Open Graph for social previews -->
+    <meta property="og:title" content="Isosmfar: simple interactive iso-distance fields web application with Openstreetmap data">
+    <meta property="og:description" content="Interactive web app to visualize distance, density and Voronoi fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more - PNG export too !">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://liotier.github.io/Geogizmos/Isosmfar/">
+    <meta property="og:image" content="https://raw.githubusercontent.com/liotier/Geogizmos/refs/heads/main/Isosmfar/Isosmfar_screenshot.jpg">
+
+<!-- Favicon and app icons -->
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+
+<!-- Web App Manifest -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2b2b2b">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Isosmfar",
+  "url": "https://liotier.github.io/Geogizmos/Isosmfar/",
+  "image": "https://github.com/liotier/Geogizmos/blob/main/Isosmfar/Screenshot%202025-09-11%20at%2017-23-08%20Isosmfar%20-%20OSM%20Distance%20Fields.png",
+  "author": {
+    "@type": "Person",
+    "name": "Jean-Marc Liotier",
+    "url": "https://github.com/liotier"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Geogizmos"
+  },
+  "applicationCategory": "MapApplication",
+  "operatingSystem": "Web",
+  "softwareVersion": "1.4",
+  "description": "Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+  }
+}
+</script>
+
+
+    <title>Isosmfar: simple interactive iso-distance fields web application with Openstreetmap data</title>
+
+    <!-- External Libraries -->
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+
+    <!-- Application Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <div id="sidebar">
+            <div id="header">
+                <h1>Isosmfar</h1>
+                <div class="subtitle">Interactive Openstreetmap Heatmap Visualization</div>
+            </div>
+
+            <div id="controls">
+                <div id="messages"></div>
+
+                <!-- Mode toggle (now with 4 options in 2x2 grid) -->
+                <div class="mode-toggle">
+                    <label class="mode-toggle-label">Visualization mode</label>
+                    <div class="toggle-buttons">
+                        <div class="toggle-button active" data-mode="distance" data-tooltip="Shows how far away you are from the nearest feature. Darker colors mean closer proximity. Great for finding underserved areas.">Distance Field</div>
+                        <div class="toggle-button" data-mode="density" data-tooltip="Shows concentration of features in an area. Brighter colors indicate more features nearby. Perfect for identifying hotspots.">Density Field</div>
+                        <div class="toggle-button" data-mode="idw" data-tooltip="Inverse Distance Weighting: A classic GIS interpolation method. Creates smooth gradients based on weighted influence from all nearby points.">IDW</div>
+                        <div class="toggle-button" data-mode="heat" data-tooltip="Simulates heat diffusing from source points. Creates smooth, natural-looking heat maps commonly used in data visualization.">Heat Diffusion</div>
+                    </div>
+                </div>
+
+                <!-- Voronoi overlay checkbox -->
+                <div class="checkbox-group">
+                    <input type="checkbox" id="voronoi-overlay" />
+                    <label for="voronoi-overlay">Show Voronoi boundaries</label>
+                </div>
+
+                <div class="control-group">
+                    <label>Filter query</label>
+                    <div class="query-input-container">
+                        <input type="text" id="query" value="amenity=hospital" placeholder='amenity=hospital or [shop=supermarket]'>
+                        <div id="query-results" class="dropdown"></div>
+                    </div>
+                    <div class="help-text">
+                        Openstreetmap key=value or <a href="https://liotier.github.io/Geogizmos/Isosmfar/IsosmfarOverpassQLfilterSyntax.html" target="_blank">Overpass QL filter</a>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Geographic area</label>
+                    <div class="area-input-container">
+                        <input type="text" id="area" value="Sierra Leone" placeholder="Type to search...">
+                        <div id="area-results" class="dropdown"></div>
+                    </div>
+                    <div class="help-text">Autocompletion for cities, regions, or countries</div>
+                </div>
+
+                <div class="control-group">
+                    <label>Background map</label>
+                    <select id="basemap-selector">
+                        <option value="standard">Openstreetmap Standard</option>
+                        <option value="humanitarian">Humanitarian</option>
+                        <option value="carto-light">Carto Light</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Color palette</label>
+                    <div class="palette-selector-container">
+                        <div class="palette-selected" id="palette-selected">
+                            <div class="palette-gradient" id="selected-gradient"></div>
+                        </div>
+                        <div class="palette-dropdown" id="palette-dropdown"></div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <button id="generate" class="primary">Generate visualization</button>
+                    <button id="export-png" disabled title="Export visualization as PNG image">Export PNG</button>
+                </div>
+
+                <div class="advanced-controls" id="advanced-controls" style="display: none;">
+                    <label class="slider-label tooltip" id="radius-label" data-tooltip="Adjust gradient radius around data points">Gradient radius</label>
+                    <div class="slider-container" id="radius-slider-container">
+                        <div class="slider-track" id="distance-slider">
+                            <div class="slider-cursor" id="distance-cursor" style="left: 50%;"></div>
+                        </div>
+                        <div class="slider-labels">
+                            <span>10 m</span>
+                            <span id="max-km-label">100 km</span>
+                        </div>
+                        <div style="text-align: center;">
+                            <span class="slider-value" id="distance-value">50 km</span>
+                        </div>
+                    </div>
+
+                    <label class="slider-label tooltip" data-tooltip="Adjust the gradient overlay transparency" style="margin: 15px 0 5px 0;">Transparency</label>
+                    <div class="slider-container">
+                        <div class="slider-track" id="transparency-slider">
+                            <div class="slider-cursor" id="transparency-cursor" style="left: 50%;"></div>
+                        </div>
+                        <div class="slider-labels">
+                            <span>Transparent</span>
+                            <span>Opaque</span>
+                        </div>
+                        <div style="text-align: center;">
+                            <span class="slider-value" id="transparency-value">50%</span>
+                        </div>
+                    </div>
+
+                    <!-- Mode-specific controls for IDW -->
+                    <div class="mode-specific-controls" id="idw-controls">
+                        <label class="slider-label tooltip" data-tooltip="Higher power = sharper falloff" style="margin: 15px 0 5px 0;">IDW Power</label>
+                        <div class="slider-container">
+                            <div class="slider-track" id="idw-power-slider">
+                                <div class="slider-cursor" id="idw-power-cursor" style="left: 33%;"></div>
+                            </div>
+                            <div class="slider-labels">
+                                <span>1.0</span>
+                                <span>5.0</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <span class="slider-value" id="idw-power-value">2.0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mode-specific controls for Heat Diffusion -->
+                    <div class="mode-specific-controls" id="heat-controls">
+                        <label class="slider-label tooltip" data-tooltip="Control heat spread (% of radius)" style="margin: 15px 0 5px 0;">Heat Bandwidth</label>
+                        <div class="slider-container">
+                            <div class="slider-track" id="heat-bandwidth-slider">
+                                <div class="slider-cursor" id="heat-bandwidth-cursor" style="left: 30%;"></div>
+                            </div>
+                            <div class="slider-labels">
+                                <span>10%</span>
+                                <span>100%</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <span class="slider-value" id="heat-bandwidth-value">30%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Voronoi coalesce slider (shown only when Voronoi is checked) -->
+                    <div class="voronoi-controls" id="voronoi-controls">
+                        <label class="slider-label tooltip" data-tooltip="Merge nearby points before computing Voronoi cells" style="margin: 15px 0 5px 0;">Voronoi coalesce distance</label>
+                        <div class="slider-container">
+                            <div class="slider-track" id="coalesce-slider">
+                                <div class="slider-cursor" id="coalesce-cursor" style="left: 0%;"></div>
+                            </div>
+                            <div class="slider-labels">
+                                <span>Off</span>
+                                <span>20 km</span>
+                            </div>
+                            <div style="text-align: center;">
+                                <span class="slider-value" id="coalesce-value">Off</span>
+                            </div>
+                            <div class="coalesce-info" id="coalesce-info"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="stats" class="stats" style="display: none;">
+                    <div id="feature-count"></div>
+                    <div id="area-size"></div>
+                    <div id="computed-max-distance"></div>
+                    <div class="credits">
+                        <div>Produced by Jean-Marc Liotier</div>
+                        <div><a href="https://github.com/liotier/Geogizmos/tree/main/Isosmfar" target="_blank">View on GitHub</a></div>
+                    </div>
+                </div>
+
+                <div class="controls-footer">
+                    <div>Jean-Marc Liotier loves <a href="https://switch2osm.org/" target="_blank">Openstreetmap</a> !</div>
+                    <div><a href="https://github.com/liotier/Geogizmos/tree/main/Isosmfar" target="_blank">View on GitHub</a></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="map-container">
+            <div id="map"></div>
+            <div id="status">
+                <div id="status-text">Ready</div>
+                <div id="progress-bar">
+                    <div id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- External Libraries -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
+
+    <!-- Application Script -->
+    <script src="app.js"></script>
+</body>
+</html>
