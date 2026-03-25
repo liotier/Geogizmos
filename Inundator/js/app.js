@@ -10,7 +10,7 @@ import { PolygonGenerator } from './core/polygon-generator.js';
 import { Statistics } from './core/statistics.js';
 import { MapManager } from './ui/map-manager.js';
 import { Visualization } from './ui/visualization.js';
-import { PerformanceTimer } from './utils/performance-timer.js';
+
 
 export class InundatorApp {
     // Services

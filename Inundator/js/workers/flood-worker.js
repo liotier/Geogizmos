@@ -560,8 +560,6 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         else if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSide.add(i);
     }
 
-    const totalCells = leftSide.size + rightSide.size;
-
     if (iterations >= CONFIG.maxIterations) {
         debugLog(`WARNING: Reached iteration limit - left: ${leftSide.size}, right: ${rightSide.size}`);
     }
@@ -607,13 +605,12 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
     const elev1 = data[firstCell];
     const elev2 = data[lastCell];
 
-    let barriers, damLevel, maxWaterLevel;
+    let barriers, maxWaterLevel;
 
     if (cachedDamGeometry &&
         Math.abs(cachedDamGeometry.elev1 - elev1) < 0.1 &&
         Math.abs(cachedDamGeometry.elev2 - elev2) < 0.1) {
         // Reuse cached geometry
-        damLevel = cachedDamGeometry.damLevel;
         maxWaterLevel = cachedDamGeometry.maxWaterLevel;
         barriers = remapBarrierToNewGrid(cachedDamGeometry.barrierOffsets, damCells, width, height);
         debugLog(`Reusing cached dam geometry: ${barriers.size} barrier cells`);
@@ -880,8 +877,6 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
         if (visited[i] === CELL_STATE.LEFT_SIDE) leftSide.add(i);
         else if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSide.add(i);
     }
-
-    const totalCells = leftSide.size + rightSide.size;
 
     if (iterations >= CONFIG.maxIterations) {
         debugLog(`WARNING: Reached iteration limit - left: ${leftSide.size}, right: ${rightSide.size}`);
