@@ -225,14 +225,9 @@ export class ElevationService {
      * @returns {Promise<Array<number>>} Array of elevations in meters
      */
     async fetchElevations(points) {
-        const elevations = [];
-
-        for (const point of points) {
-            const [lng, lat] = point;
-            const elevation = await this.getElevationAtPoint(lng, lat);
-            elevations.push(elevation);
-        }
-
+        const elevations = await Promise.all(
+            points.map(([lng, lat]) => this.getElevationAtPoint(lng, lat))
+        );
         return elevations;
     }
 
