@@ -876,7 +876,9 @@
 
                 this.map = new maplibregl.Map({
                     container: 'map',
-                    preserveDrawingBuffer: true, // Preserve WebGL content for exports
+                    canvasContextAttributes: {
+                        preserveDrawingBuffer: true // Preserve WebGL content for exports
+                    },
                     style: {
                         version: 8,
                         sources: {
@@ -1857,7 +1859,7 @@
                             let clippedCell = null;
                             if (boundaryFeature) {
                                 try {
-                                    const intersection = turf.intersect(cellPolygon, boundaryFeature);
+                                    const intersection = turf.intersect(turf.featureCollection([cellPolygon, boundaryFeature]));
                                     if (intersection && intersection.geometry) {
                                         clippedCell = intersection;
                                     } else {
@@ -2578,7 +2580,8 @@
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
                     },
                     
-                    render: function(gl, matrix) {
+                    render: function(gl, options) {
+                        const matrix = options.modelViewProjectionMatrix;
                         if (this.lastPalette !== this.currentPalette) {
                             this.updatePaletteTexture(gl);
                             this.lastPalette = this.currentPalette;

@@ -32,9 +32,11 @@ export class MapManager {
         try {
             this.map = new globalThis.maplibregl.Map({
                 container: this.container,
-                preserveDrawingBuffer: true,
-                failIfMajorPerformanceCaveat: false,
-                antialias: false,
+                canvasContextAttributes: {
+                    preserveDrawingBuffer: true,
+                    failIfMajorPerformanceCaveat: false,
+                    antialias: false
+                },
                 style: this.createStyle('topo'),
                 center: CONFIG.map.defaultCenter,
                 zoom: CONFIG.map.defaultZoom,
@@ -45,9 +47,11 @@ export class MapManager {
 
             this.map = new globalThis.maplibregl.Map({
                 container: this.container,
-                preserveDrawingBuffer: false,
-                failIfMajorPerformanceCaveat: false,
-                antialias: false,
+                canvasContextAttributes: {
+                    preserveDrawingBuffer: false,
+                    failIfMajorPerformanceCaveat: false,
+                    antialias: false
+                },
                 maxPitch: 0,
                 style: this.createStyle('topo'),
                 center: CONFIG.map.defaultCenter,
