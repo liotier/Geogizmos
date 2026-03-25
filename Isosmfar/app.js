@@ -2,6 +2,11 @@
         // CONFIGURATION CONSTANTS
         // ============================================================================
 
+        // Detect mobile/tablet devices for memory optimization
+        // Include tablets (up to 1280px) to prevent WebGL context loss
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+                         || (window.innerWidth <= 1280 && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+
         const CONFIG = {
             // API Configuration
             OVERPASS_API_URL: 'https://overpass-api.de/api/interpreter',
@@ -12,13 +17,14 @@
             MAX_RETRIES: 3,
             RETRY_DELAYS: [1000, 2000, 4000], // Exponential backoff in ms
 
-            // WebGL Configuration
-            MAX_FEATURES: 5000,
-            TEXTURE_SIZE: 128,
+            // WebGL Configuration (optimized for mobile to prevent context loss)
+            MAX_FEATURES: isMobile ? 1000 : 5000,
+            TEXTURE_SIZE: isMobile ? 64 : 128,
             WEBGL_CONTEXT_OPTIONS: {
                 alpha: true,
-                antialias: true,
-                preserveDrawingBuffer: true
+                antialias: !isMobile, // Disable antialiasing on mobile to save memory
+                preserveDrawingBuffer: true,
+                failIfMajorPerformanceCaveat: false // Allow software rendering if needed
             },
 
             // Visualization Defaults
@@ -467,6 +473,15 @@
 
                 // Wait for map to be fully loaded before restoring UI and auto-executing
                 this.map.once('load', () => {
+                    // Show mobile optimization info
+                    if (isMobile) {
+                        console.log('Mobile device detected - using optimized settings:');
+                        console.log(`- Max features: ${CONFIG.MAX_FEATURES} (reduced from 5000)`);
+                        console.log(`- Texture size: ${CONFIG.TEXTURE_SIZE}x${CONFIG.TEXTURE_SIZE} (reduced from 128x128)`);
+                        console.log('- Antialiasing disabled');
+                        console.log('Tip: Use smaller areas or simpler queries to avoid memory issues');
+                    }
+
                     // Restore UI to match loaded state
                     this.restoreUIFromState();
                     // Auto-execute query if URL has area and query
@@ -881,6 +896,20 @@
                     center: initialCenter,
                     zoom: initialZoom
                 });
+
+                // Add WebGL context loss detection for mobile debugging
+                const canvas = this.map.getCanvas();
+                canvas.addEventListener('webglcontextlost', (event) => {
+                    event.preventDefault();
+                    console.error('WebGL context lost!');
+                    alert('WebGL context lost! This can happen on mobile due to memory constraints.');
+                    this.showStatus('❌ WebGL context lost - try reloading');
+                }, false);
+
+                canvas.addEventListener('webglcontextrestored', () => {
+                    console.log('WebGL context restored');
+                    this.showStatus('WebGL context restored');
+                }, false);
 
                 this.map.addControl(new maplibregl.NavigationControl());
 
@@ -1645,27 +1674,59 @@
                     this.originalFeatures = features;
                     this.areaBoundary = boundary;
 
-                    this.showStatus('Computing Voronoi diagram...');
+                    this.showStatus('Computing distance field...');
                     await new Promise(resolve => setTimeout(resolve, 50));
 
-                    // Compute Voronoi diagram
-                    this.computeVoronoi(features, bounds, boundary);
+                    // Compute Voronoi diagram (used internally for distance calculations)
+                    try {
+                        this.computeVoronoi(features, bounds, boundary);
+                    } catch (voronoiError) {
+                        console.error('Voronoi computation error:', voronoiError);
+                        throw new Error('Failed to compute Voronoi diagram: ' + voronoiError.message);
+                    }
 
                     this.showStatus('Rendering visualization...');
                     await new Promise(resolve => setTimeout(resolve, 50));
 
-                    this.renderWebGL(features, boundary, bounds);
-                    
+                    try {
+                        this.renderWebGL(features, boundary, bounds);
+                    } catch (renderError) {
+                        console.error('WebGL rendering error:', renderError);
+                        throw new Error('Failed to render map: ' + renderError.message);
+                    }
+
+                    // Verify rendering succeeded
+                    console.log('Render complete - verifying map state...');
+                    console.log('Map exists:', !!this.map);
+                    console.log('Gradient layer exists:', !!this.gradientFieldLayer);
+                    console.log('Map has gradient-field layer:', !!this.map.getLayer('gradient-field'));
+                    console.log('Canvas visible:', this.map.getCanvas().style.display);
+
+                    if (!this.map.getLayer('gradient-field')) {
+                        throw new Error('Gradient layer missing after render!');
+                    }
+
                     this.lastResults = { features, boundary, bounds };
-                    
+
                     document.getElementById('export-png').disabled = false;
-                    
+
+                    this.showStatus('✓ Complete!');
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                     this.hideStatus();
 
                 } catch (error) {
                     console.error('Error in generate():', error);
-                    this.showMessage(error.message || 'An error occurred', 'error');
-                    this.hideStatus();
+                    const errorMsg = error.message || 'An error occurred';
+                    this.showMessage(errorMsg, 'error');
+
+                    // Make errors impossible to miss on mobile
+                    this.showStatus('❌ Error: ' + errorMsg);
+                    setTimeout(() => this.hideStatus(), 5000);
+
+                    // Also use alert for critical visibility on mobile
+                    if (window.innerWidth <= 600) {
+                        setTimeout(() => alert('Error: ' + errorMsg), 100);
+                    }
                 }
             }
             
