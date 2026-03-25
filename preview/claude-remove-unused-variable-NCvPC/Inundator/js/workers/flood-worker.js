@@ -305,6 +305,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
     // Seeds are partitioned ONCE using geometry, then state propagates during flood
     const queue = new SimpleQueue();
 
+    // Running counters - avoid full array scans for progress/stagnation checks
+    let leftSideCount = 0;
+    let rightSideCount = 0;
+
     // Add seeds and assign their side using cross product (ONLY place we use geometry)
     for (let seed of seeds) {
         const x = seed % width;
@@ -316,11 +320,14 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         // Assign ternary state: LEFT_SIDE or RIGHT_SIDE
         if (crossProduct > 0) {
             visited[seed] = CELL_STATE.LEFT_SIDE;
+            leftSideCount++;
         } else if (crossProduct < 0) {
             visited[seed] = CELL_STATE.RIGHT_SIDE;
+            rightSideCount++;
         } else {
             // Exactly on dam line (rare) - default to left
             visited[seed] = CELL_STATE.LEFT_SIDE;
+            leftSideCount++;
         }
 
         queue.push(seed);
@@ -336,13 +343,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         iterations++;
 
         if (iterations % CONFIG.progressUpdateInterval === 0) {
-            // Count cells by scanning visited array
-            let leftSideCount = 0;
-            let rightSideCount = 0;
-            for (let i = 0; i < visited.length; i++) {
-                if (visited[i] === CELL_STATE.LEFT_SIDE) leftSideCount++;
-                else if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSideCount++;
-            }
+            // Use running counters instead of scanning visited array
             const totalCells = leftSideCount + rightSideCount;
 
             debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${leftSideCount}, right: ${rightSideCount}`);
@@ -369,14 +370,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
         if (iterations % CONFIG.layerCheckInterval === 0) {
-            // Count cells by scanning visited array (merge detection is now automatic inline)
-            let leftSideCount = 0;
-            let rightSideCount = 0;
-            for (let i = 0; i < visited.length; i++) {
-                if (visited[i] === CELL_STATE.LEFT_SIDE) leftSideCount++;
-                else if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSideCount++;
-            }
-
+            // Use running counters instead of scanning visited array
             const leftGrowth = leftSideCount - lastLeftSize;
             const rightGrowth = rightSideCount - lastRightSize;
             const leftGrowing = leftGrowth > 0;
@@ -428,10 +422,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // If both sides are stagnant, we're done - return the smaller (upstream) side
             if (leftStagnant >= 3 && rightStagnant >= 3) {
                 const upstream = leftSideCount < rightSideCount ? CELL_STATE.LEFT_SIDE : CELL_STATE.RIGHT_SIDE;
-                const upstreamSet = new Set();
-                for (let i = 0; i < visited.length; i++) {
-                    if (visited[i] === upstream) upstreamSet.add(i);
-                }
+                const upstreamSet = buildSideSet(visited, upstream);
                 debugLog(`Both sides stagnant - selecting smaller side (${upstreamSet.size} cells) as upstream`);
                 return { flooded: upstreamSet, barriers };
             }
@@ -440,14 +431,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             lastRightSize = rightSideCount;
 
             // Check if approaching edge - request expansion if needed
-            // Build combined flooded set from visited array
-            const flooded = new Set();
-            for (let i = 0; i < visited.length; i++) {
-                if (visited[i] === CELL_STATE.LEFT_SIDE || visited[i] === CELL_STATE.RIGHT_SIDE) {
-                    flooded.add(i);
-                }
-            }
-            const edgeInfo = isApproachingEdge(flooded, width, height);
+            const edgeInfo = isApproachingEdgeFromCounters(leftSideCount + rightSideCount, width, height, visited);
             if (edgeInfo) {
                 debugLog(`Flooding approaching DEM edge (left: ${leftSideCount}, right: ${rightSideCount}) - requesting expansion`);
 
@@ -455,7 +439,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                 // Extract remaining queue items (from head onwards)
                 const queueCells = queue.items.slice(queue.head);
 
-                // Build side arrays from visited array
+                // Build side arrays from visited array (only at expansion boundary)
                 const leftSideCells = [];
                 const rightSideCells = [];
                 for (let i = 0; i < visited.length; i++) {
@@ -485,7 +469,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
                 // Request expansion with state for continuation
                 self.postMessage({
                     needMoreDEM: true,
-                    currentSize: flooded.size,
+                    currentSize: leftSideCount + rightSideCount,
                     iterations: iterations,
                     edges: edgeInfo,
                     resumeState: resumeState
@@ -547,18 +531,17 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
 
             // Propagate parent's state (no geometry calculation!)
             // This solves the infinite dam problem - state follows water flow, not infinite line
-            visited[neighbor] = visited[cell];
+            const parentState = visited[cell];
+            visited[neighbor] = parentState;
+            if (parentState === CELL_STATE.LEFT_SIDE) leftSideCount++;
+            else rightSideCount++;
             queue.push(neighbor);
         }
     }
 
-    // Build final side sets from visited array
-    const leftSide = new Set();
-    const rightSide = new Set();
-    for (let i = 0; i < visited.length; i++) {
-        if (visited[i] === CELL_STATE.LEFT_SIDE) leftSide.add(i);
-        else if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSide.add(i);
-    }
+    // Build final side sets from visited array (only once at termination)
+    const leftSide = buildSideSet(visited, CELL_STATE.LEFT_SIDE);
+    const rightSide = buildSideSet(visited, CELL_STATE.RIGHT_SIDE);
 
     if (iterations >= CONFIG.maxIterations) {
         debugLog(`WARNING: Reached iteration limit - left: ${leftSide.size}, right: ${rightSide.size}`);
@@ -674,16 +657,10 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
         iterations++;
 
         if (iterations % CONFIG.progressUpdateInterval === 0) {
-            // Count cells by scanning visited array
-            let currentLeftCount = 0;
-            let currentRightCount = 0;
-            for (let i = 0; i < visited.length; i++) {
-                if (visited[i] === CELL_STATE.LEFT_SIDE) currentLeftCount++;
-                else if (visited[i] === CELL_STATE.RIGHT_SIDE) currentRightCount++;
-            }
-            const totalCells = currentLeftCount + currentRightCount;
+            // Use running counters instead of scanning visited array
+            const totalCells = leftSideCount + rightSideCount;
 
-            debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${currentLeftCount}, right: ${currentRightCount}`);
+            debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${leftSideCount}, right: ${rightSideCount}`);
             self.postMessage({
                 progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
@@ -707,16 +684,9 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
         // Check each side's growth separately to detect confined upstream vs runaway downstream
         if (iterations % CONFIG.layerCheckInterval === 0) {
-            // Count cells by scanning visited array (merge detection is now automatic inline)
-            let currentLeftCount = 0;
-            let currentRightCount = 0;
-            for (let i = 0; i < visited.length; i++) {
-                if (visited[i] === CELL_STATE.LEFT_SIDE) currentLeftCount++;
-                else if (visited[i] === CELL_STATE.RIGHT_SIDE) currentRightCount++;
-            }
-
-            const leftGrowth = currentLeftCount - lastLeftSize;
-            const rightGrowth = currentRightCount - lastRightSize;
+            // Use running counters instead of scanning visited array
+            const leftGrowth = leftSideCount - lastLeftSize;
+            const rightGrowth = rightSideCount - lastRightSize;
             const leftGrowing = leftGrowth > 0;
             const rightGrowing = rightGrowth > 0;
 
@@ -742,53 +712,33 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
             // If one side is stagnant (confined) and other is still growing (runaway), select stagnant side
             if (leftStagnant >= 3 && rightGrowing) {
                 debugLog(`Left side stagnant (growth: ${leftGrowth}, ${(leftGrowthRate*100).toFixed(1)}%) vs right growing (${rightGrowth}, ${(rightGrowthRate*100).toFixed(1)}%) - selecting left as upstream`);
-                // Build leftSide Set from visited array
-                const leftSide = new Set();
-                for (let i = 0; i < visited.length; i++) {
-                    if (visited[i] === CELL_STATE.LEFT_SIDE) leftSide.add(i);
-                }
-                return { flooded: leftSide, barriers };
+                return { flooded: buildSideSet(visited, CELL_STATE.LEFT_SIDE), barriers };
             }
             if (rightStagnant >= 3 && leftGrowing) {
                 debugLog(`Right side stagnant (growth: ${rightGrowth}, ${(rightGrowthRate*100).toFixed(1)}%) vs left growing (${leftGrowth}, ${(leftGrowthRate*100).toFixed(1)}%) - selecting right as upstream`);
-                // Build rightSide Set from visited array
-                const rightSide = new Set();
-                for (let i = 0; i < visited.length; i++) {
-                    if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSide.add(i);
-                }
-                return { flooded: rightSide, barriers };
+                return { flooded: buildSideSet(visited, CELL_STATE.RIGHT_SIDE), barriers };
             }
 
             // If both sides are stagnant, return smaller side
             if (leftStagnant >= 3 && rightStagnant >= 3) {
-                const upstream = currentLeftCount < currentRightCount ? CELL_STATE.LEFT_SIDE : CELL_STATE.RIGHT_SIDE;
-                const upstreamSet = new Set();
-                for (let i = 0; i < visited.length; i++) {
-                    if (visited[i] === upstream) upstreamSet.add(i);
-                }
+                const upstream = leftSideCount < rightSideCount ? CELL_STATE.LEFT_SIDE : CELL_STATE.RIGHT_SIDE;
+                const upstreamSet = buildSideSet(visited, upstream);
                 debugLog(`Both sides stagnant - selecting smaller side (${upstreamSet.size} cells) as upstream`);
                 return { flooded: upstreamSet, barriers };
             }
 
-            lastLeftSize = currentLeftCount;
-            lastRightSize = currentRightCount;
+            lastLeftSize = leftSideCount;
+            lastRightSize = rightSideCount;
 
             // Check if approaching edge - request expansion if needed
-            // Build combined flooded set from visited array
-            const flooded = new Set();
-            for (let i = 0; i < visited.length; i++) {
-                if (visited[i] === CELL_STATE.LEFT_SIDE || visited[i] === CELL_STATE.RIGHT_SIDE) {
-                    flooded.add(i);
-                }
-            }
-            const edgeInfo = isApproachingEdge(flooded, width, height);
+            const edgeInfo = isApproachingEdgeFromCounters(leftSideCount + rightSideCount, width, height, visited);
             if (edgeInfo) {
-                debugLog(`Flooding approaching DEM edge again (left: ${currentLeftCount}, right: ${currentRightCount}) - requesting expansion`);
+                debugLog(`Flooding approaching DEM edge again (left: ${leftSideCount}, right: ${rightSideCount}) - requesting expansion`);
 
                 // Prepare state for another resumption
                 const queueCells = queue.items.slice(queue.head);
 
-                // Build side arrays from visited array
+                // Build side arrays from visited array (only at expansion boundary)
                 const leftSideCells = [];
                 const rightSideCells = [];
                 for (let i = 0; i < visited.length; i++) {
@@ -817,7 +767,7 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
 
                 self.postMessage({
                     needMoreDEM: true,
-                    currentSize: flooded.size,
+                    currentSize: leftSideCount + rightSideCount,
                     iterations: iterations,
                     edges: edgeInfo,
                     resumeState: newResumeState
@@ -864,19 +814,17 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
             }
 
             // Propagate parent's state (no geometry calculation!)
-            // This solves the infinite dam problem - state follows water flow, not infinite line
-            visited[neighbor] = visited[cell];
+            const parentState = visited[cell];
+            visited[neighbor] = parentState;
+            if (parentState === CELL_STATE.LEFT_SIDE) leftSideCount++;
+            else rightSideCount++;
             queue.push(neighbor);
         }
     }
 
-    // Build final side sets from visited array
-    const leftSide = new Set();
-    const rightSide = new Set();
-    for (let i = 0; i < visited.length; i++) {
-        if (visited[i] === CELL_STATE.LEFT_SIDE) leftSide.add(i);
-        else if (visited[i] === CELL_STATE.RIGHT_SIDE) rightSide.add(i);
-    }
+    // Build final side sets from visited array (only once at termination)
+    const leftSide = buildSideSet(visited, CELL_STATE.LEFT_SIDE);
+    const rightSide = buildSideSet(visited, CELL_STATE.RIGHT_SIDE);
 
     if (iterations >= CONFIG.maxIterations) {
         debugLog(`WARNING: Reached iteration limit - left: ${leftSide.size}, right: ${rightSide.size}`);
@@ -1245,6 +1193,58 @@ function getNeighbors(cell, width, height) {
  * Check if flooding is approaching DEM edge
  * Returns true if any flooded cells are within threshold distance of edge
  */
+/**
+ * Build a Set of cell indices matching a given state in the visited array.
+ * Only used at termination/exit paths, not in the hot loop.
+ */
+function buildSideSet(visited, state) {
+    const result = new Set();
+    for (let i = 0; i < visited.length; i++) {
+        if (visited[i] === state) result.add(i);
+    }
+    return result;
+}
+
+/**
+ * Check if flooding is approaching DEM edges by scanning the visited array directly.
+ * Avoids building an intermediate Set of flooded cells.
+ */
+function isApproachingEdgeFromCounters(totalCells, width, height, visited) {
+    if (totalCells === 0) return null;
+
+    const threshold = CONFIG.edgeProximityThreshold;
+    const edges = { west: false, east: false, north: false, south: false };
+
+    for (let i = 0; i < visited.length; i++) {
+        const state = visited[i];
+        if (state !== CELL_STATE.LEFT_SIDE && state !== CELL_STATE.RIGHT_SIDE) continue;
+
+        const x = i % width;
+        const y = (i - x) / width;
+
+        if (x < threshold) edges.west = true;
+        if (x >= width - threshold) edges.east = true;
+        if (y < threshold) edges.north = true;
+        if (y >= height - threshold) edges.south = true;
+
+        // Early exit if all edges detected
+        if (edges.west && edges.east && edges.north && edges.south) break;
+    }
+
+    const approaching = edges.west || edges.east || edges.north || edges.south;
+
+    if (approaching) {
+        const directions = [];
+        if (edges.north) directions.push('north');
+        if (edges.south) directions.push('south');
+        if (edges.east) directions.push('east');
+        if (edges.west) directions.push('west');
+        debugLog(`Approaching edges: ${directions.join(', ')}`);
+    }
+
+    return approaching ? edges : null;
+}
+
 function isApproachingEdge(flooded, width, height) {
     const threshold = CONFIG.edgeProximityThreshold;
     const edges = { west: false, east: false, north: false, south: false };

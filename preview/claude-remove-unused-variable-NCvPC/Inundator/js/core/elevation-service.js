@@ -99,7 +99,7 @@ export class ElevationService {
      * @returns {number} Tile X coordinate
      */
     static lngToTileX(lng, zoom) {
-        const n = Math.pow(2, zoom);
+        const n = 1 << zoom;
         return Math.floor((lng + 180) / 360 * n);
     }
 
@@ -110,7 +110,7 @@ export class ElevationService {
      * @returns {number} Tile Y coordinate
      */
     static latToTileY(lat, zoom) {
-        const n = Math.pow(2, zoom);
+        const n = 1 << zoom;
         const latRad = lat * Math.PI / 180;
         return Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
     }
@@ -424,7 +424,7 @@ export class ElevationService {
      * Convert lng/lat to tile coordinates
      */
     lngLatToTile(lng, lat, zoom) {
-        const n = Math.pow(2, zoom);
+        const n = 1 << zoom;
         const tileX = Math.floor((lng + 180) / 360 * n);
         const tileY = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) +
             1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
@@ -436,7 +436,7 @@ export class ElevationService {
      * Convert lng/lat to pixel coordinates within a tile
      */
     lngLatToPixel(lng, lat, zoom, tileX, tileY) {
-        const n = Math.pow(2, zoom);
+        const n = 1 << zoom;
         const pixelX = ((lng + 180) / 360 * n - tileX) * CONFIG.dem.tileSize;
         const pixelY = ((1 - Math.log(Math.tan(lat * Math.PI / 180) +
             1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n - tileY) * CONFIG.dem.tileSize;

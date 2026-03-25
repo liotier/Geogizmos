@@ -40,11 +40,24 @@ export class InundatorApp {
     currentBounds = null; // Track current DEM bounds [west, south, east, north]
     downstreamRejectionCount = 0; // Track consecutive downstream rejections
 
+    // Cached DOM elements
+    statusEl = null;
+    statusTextEl = null;
+    statusMessageEl = null;
+    progressFillEl = null;
+    messagesEl = null;
+
     constructor() {
         this.init();
     }
 
     init() {
+        // Cache frequently accessed DOM elements
+        this.statusEl = document.getElementById('status');
+        this.statusTextEl = document.getElementById('status-text');
+        this.statusMessageEl = document.getElementById('status-message');
+        this.progressFillEl = document.getElementById('progress-fill');
+        this.messagesEl = document.getElementById('messages');
         // Initialize map
         this.mapManager.init();
         const map = this.mapManager.getMap();
@@ -572,38 +585,35 @@ export class InundatorApp {
 
     // UI helpers
     showStatus(text) {
-        const status = document.getElementById('status');
-        document.getElementById('status-text').textContent = text;
-        status.classList.add('active');
+        this.statusTextEl.textContent = text;
+        this.statusEl.classList.add('active');
     }
 
     hideStatus() {
         setTimeout(() => {
-            document.getElementById('status').classList.remove('active');
+            this.statusEl.classList.remove('active');
         }, 500);
     }
 
     showStatusMessage(text) {
-        const statusMessage = document.getElementById('status-message');
-        statusMessage.textContent = text;
-        statusMessage.classList.add('active');
+        this.statusMessageEl.textContent = text;
+        this.statusMessageEl.classList.add('active');
 
         // Auto-hide after 10 seconds (twice the original 5 second duration)
         setTimeout(() => {
-            statusMessage.classList.remove('active');
+            this.statusMessageEl.classList.remove('active');
         }, 10000);
     }
 
     updateProgress(value) {
-        document.getElementById('progress-fill').style.width = `${value * 100}%`;
+        this.progressFillEl.style.width = `${value * 100}%`;
     }
 
     showMessage(text, type = 'info') {
-        const messages = document.getElementById('messages');
-        messages.innerHTML = `<div class="message ${type}-message">${text}</div>`;
+        this.messagesEl.innerHTML = `<div class="message ${type}-message">${text}</div>`;
 
         setTimeout(() => {
-            messages.innerHTML = '';
+            this.messagesEl.innerHTML = '';
         }, 5000);
     }
 }
