@@ -1736,53 +1736,107 @@
                 if (distanceKm === 0 || features.length === 0) {
                     return features;
                 }
-                
+
                 // Convert km to degrees (approximate)
                 const distanceDeg = distanceKm / 111; // 1 degree ≈ 111 km
-                
-                // Complete-linkage clustering
-                const clusters = [];
-                const used = new Set();
-                
+                const distSq = distanceDeg * distanceDeg;
+
+                // Grid-based spatial clustering: O(n) average case
+                // Bucket points into grid cells of size distanceDeg
+                const cellSize = distanceDeg;
+                const grid = new Map();
+
+                const cellKey = (cx, cy) => `${cx},${cy}`;
+
                 for (let i = 0; i < features.length; i++) {
-                    if (used.has(i)) continue;
-                    
-                    const cluster = [i];
-                    used.add(i);
-                    
-                    // Find all points that can be added to this cluster
-                    for (let j = i + 1; j < features.length; j++) {
-                        if (used.has(j)) continue;
-                        
-                        // Check if this point is within distance of ALL points in cluster
-                        let canAdd = true;
-                        for (const idx of cluster) {
-                            const dist = Math.sqrt(
-                                Math.pow(features[j].lat - features[idx].lat, 2) +
-                                Math.pow(features[j].lon - features[idx].lon, 2)
-                            );
-                            if (dist > distanceDeg) {
-                                canAdd = false;
-                                break;
+                    const cx = Math.floor(features[i].lon / cellSize);
+                    const cy = Math.floor(features[i].lat / cellSize);
+                    const key = cellKey(cx, cy);
+                    if (!grid.has(key)) grid.set(key, []);
+                    grid.get(key).push(i);
+                }
+
+                // Union-Find for merging clusters
+                const parent = new Int32Array(features.length);
+                const rank = new Uint8Array(features.length);
+                for (let i = 0; i < features.length; i++) parent[i] = i;
+
+                function find(x) {
+                    while (parent[x] !== x) {
+                        parent[x] = parent[parent[x]]; // path compression
+                        x = parent[x];
+                    }
+                    return x;
+                }
+
+                function union(a, b) {
+                    a = find(a);
+                    b = find(b);
+                    if (a === b) return;
+                    if (rank[a] < rank[b]) { const t = a; a = b; b = t; }
+                    parent[b] = a;
+                    if (rank[a] === rank[b]) rank[a]++;
+                }
+
+                // For each point, check its grid cell and 8 neighbors
+                for (const [key, indices] of grid) {
+                    const parts = key.split(',');
+                    const cx = Number.parseInt(parts[0]);
+                    const cy = Number.parseInt(parts[1]);
+
+                    // Merge points within the same cell
+                    for (let a = 0; a < indices.length; a++) {
+                        for (let b = a + 1; b < indices.length; b++) {
+                            const fa = features[indices[a]];
+                            const fb = features[indices[b]];
+                            const dlat = fa.lat - fb.lat;
+                            const dlon = fa.lon - fb.lon;
+                            if (dlat * dlat + dlon * dlon <= distSq) {
+                                union(indices[a], indices[b]);
                             }
                         }
-                        
-                        if (canAdd) {
-                            cluster.push(j);
-                            used.add(j);
+                    }
+
+                    // Check adjacent cells
+                    for (let dx = 0; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            if (dx === 0 && dy <= 0) continue; // avoid double-checking
+                            const neighborKey = cellKey(cx + dx, cy + dy);
+                            const neighborIndices = grid.get(neighborKey);
+                            if (!neighborIndices) continue;
+
+                            for (const i of indices) {
+                                for (const j of neighborIndices) {
+                                    const fi = features[i];
+                                    const fj = features[j];
+                                    const dlat = fi.lat - fj.lat;
+                                    const dlon = fi.lon - fj.lon;
+                                    if (dlat * dlat + dlon * dlon <= distSq) {
+                                        union(i, j);
+                                    }
+                                }
+                            }
                         }
                     }
-                    
-                    clusters.push(cluster);
                 }
-                
+
+                // Collect clusters by root
+                const clusterMap = new Map();
+                for (let i = 0; i < features.length; i++) {
+                    const root = find(i);
+                    if (!clusterMap.has(root)) clusterMap.set(root, { sumLat: 0, sumLon: 0, count: 0 });
+                    const c = clusterMap.get(root);
+                    c.sumLat += features[i].lat;
+                    c.sumLon += features[i].lon;
+                    c.count++;
+                }
+
                 // Calculate centroids
-                const coalescedFeatures = clusters.map(cluster => {
-                    const avgLat = cluster.reduce((sum, idx) => sum + features[idx].lat, 0) / cluster.length;
-                    const avgLon = cluster.reduce((sum, idx) => sum + features[idx].lon, 0) / cluster.length;
-                    return { lat: avgLat, lon: avgLon };
-                });
-                
+                const coalescedFeatures = [];
+                for (const { sumLat, sumLon, count } of clusterMap.values()) {
+                    coalescedFeatures.push({ lat: sumLat / count, lon: sumLon / count });
+                }
+
                 return coalescedFeatures;
             }
             
@@ -2310,139 +2364,142 @@
                                 if (!pointInPolygon(v_pos)) {
                                     discard;
                                 }
-                                
+
+                                // Pre-compute squared distance threshold to skip sqrt for out-of-range features
+                                float maxDistMerc = u_maxDistanceKm / 40000.0;
+                                float maxDistSq = maxDistMerc * maxDistMerc;
+
                                 if (u_mode == 0) {
-                                    // Distance field mode
-                                    float minDist = 999999.0;
-                                    
+                                    // Distance field mode - use squared distances throughout, sqrt only once at end
+                                    float minDistSq = 999999.0;
+
                                     for (int i = 0; i < 5000; i++) {
                                         if (i >= u_featureCount) break;
-                                        
+
                                         float row = floor(float(i) / u_textureSize);
                                         float col = mod(float(i), u_textureSize);
                                         vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
-                                        
+
                                         vec4 featureData = texture2D(u_features_texture, texCoord);
                                         vec2 feature = featureData.xy;
-                                        
+
                                         float dx = v_pos.x - feature.x;
                                         float dy = v_pos.y - feature.y;
-                                        float dist = sqrt(dx * dx + dy * dy);
-                                        
-                                        minDist = min(minDist, dist);
+                                        float distSq = dx * dx + dy * dy;
+
+                                        minDistSq = min(minDistSq, distSq);
                                     }
-                                    
-                                    float distKm = minDist * 40000.0;
-                                    
-                                    if (distKm >= u_maxDistanceKm) {
+
+                                    if (minDistSq >= maxDistSq) {
                                         discard;
                                     }
-                                    
+
+                                    float distKm = sqrt(minDistSq) * 40000.0;
                                     float normalized = 1.0 - (distKm / u_maxDistanceKm);
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
-                                    
+
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
-                                    
+
                                 } else if (u_mode == 1) {
-                                    // Density field mode
+                                    // Density field mode - skip sqrt for out-of-range features
                                     float density = 0.0;
                                     float bandwidth = u_maxDistanceKm * 0.25;
-                                    
+
                                     for (int i = 0; i < 5000; i++) {
                                         if (i >= u_featureCount) break;
-                                        
+
                                         float row = floor(float(i) / u_textureSize);
                                         float col = mod(float(i), u_textureSize);
                                         vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
-                                        
+
                                         vec4 featureData = texture2D(u_features_texture, texCoord);
                                         vec2 feature = featureData.xy;
-                                        
+
                                         float dx = v_pos.x - feature.x;
                                         float dy = v_pos.y - feature.y;
-                                        float dist = sqrt(dx * dx + dy * dy);
-                                        float distKm = dist * 40000.0;
-                                        
-                                        if (distKm < u_maxDistanceKm) {
+                                        float distSq = dx * dx + dy * dy;
+
+                                        if (distSq < maxDistSq) {
+                                            float distKm = sqrt(distSq) * 40000.0;
                                             float weight = exp(-2.0 * pow(distKm / bandwidth, 2.0));
                                             density += weight;
                                         }
                                     }
-                                    
+
                                     if (density < 0.001) {
                                         discard;
                                     }
-                                    
+
                                     float maxDensity = 3.0;
                                     float x = density / maxDensity;
                                     float k = 4.0;
                                     float sigmoid = 1.0 / (1.0 + exp(-k * (x - 0.3)));
                                     float normalized = pow(sigmoid, 0.85);
                                     normalized = mix(density * 0.05, normalized, smoothstep(0.0, 0.1, density));
-                                    
+
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
-                                    
+
                                 } else if (u_mode == 2) {
-                                    // IDW (Inverse Distance Weighting) mode
+                                    // IDW (Inverse Distance Weighting) mode - skip sqrt for out-of-range features
                                     float sumWeights = 0.0;
                                     float sumValues = 0.0;
-                                    
+
                                     for (int i = 0; i < 5000; i++) {
                                         if (i >= u_featureCount) break;
-                                        
+
                                         float row = floor(float(i) / u_textureSize);
                                         float col = mod(float(i), u_textureSize);
                                         vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
-                                        
+
                                         vec4 featureData = texture2D(u_features_texture, texCoord);
                                         vec2 feature = featureData.xy;
-                                        
+
                                         float dx = v_pos.x - feature.x;
                                         float dy = v_pos.y - feature.y;
-                                        float dist = sqrt(dx * dx + dy * dy);
-                                        float distKm = dist * 40000.0;
-                                        
-                                        if (distKm < u_maxDistanceKm) {
+                                        float distSq = dx * dx + dy * dy;
+
+                                        if (distSq < maxDistSq) {
+                                            float distKm = sqrt(distSq) * 40000.0;
                                             // Avoid division by zero at exact point locations
                                             if (distKm < 0.001) distKm = 0.001;
-                                            
+
                                             float weight = 1.0 / pow(distKm, u_idwPower);
                                             sumWeights += weight;
                                             sumValues += weight * (1.0 - distKm / u_maxDistanceKm);
                                         }
                                     }
-                                    
+
                                     if (sumWeights < 0.001) {
                                         discard;
                                     }
-                                    
+
                                     float normalized = sumValues / sumWeights;
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
-                                    
+
                                     gl_FragColor = vec4(color.rgb, u_transparency * normalized);
-                                    
+
                                 } else if (u_mode == 3) {
-                                    // Heat Diffusion mode (Gaussian kernel)
+                                    // Heat Diffusion mode (Gaussian kernel) - skip sqrt for out-of-range features
                                     float heat = 0.0;
                                     float bandwidth = u_maxDistanceKm * u_heatBandwidth;
-                                    
+
                                     for (int i = 0; i < 5000; i++) {
                                         if (i >= u_featureCount) break;
-                                        
+
                                         float row = floor(float(i) / u_textureSize);
                                         float col = mod(float(i), u_textureSize);
                                         vec2 texCoord = vec2((col + 0.5) / u_textureSize, (row + 0.5) / u_textureSize);
-                                        
+
                                         vec4 featureData = texture2D(u_features_texture, texCoord);
                                         vec2 feature = featureData.xy;
-                                        
+
                                         float dx = v_pos.x - feature.x;
                                         float dy = v_pos.y - feature.y;
-                                        float dist = sqrt(dx * dx + dy * dy);
-                                        float distKm = dist * 40000.0;
-                                        
-                                        if (distKm < u_maxDistanceKm) {
+                                        float distSq = dx * dx + dy * dy;
+
+                                        if (distSq < maxDistSq) {
+                                            float distKm = sqrt(distSq) * 40000.0;
                                             // Gaussian kernel
                                             float gaussian = exp(-0.5 * pow(distKm / bandwidth, 2.0));
                                             heat += gaussian;
@@ -2557,8 +2614,12 @@
                         this.idwPowerLocation = gl.getUniformLocation(this.program, 'u_idwPower');
                         this.heatBandwidthLocation = gl.getUniformLocation(this.program, 'u_heatBandwidth');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
-                        
+
                         this.featureCount = maxFeatures;
+
+                        // Pre-allocate position buffer (reused every frame)
+                        this.positionBuffer = gl.createBuffer();
+                        this.positions = new Float32Array(12); // 6 vertices × 2 coords
                     },
                     
                     updatePaletteTexture: function(gl) {
@@ -2592,19 +2653,18 @@
                         const [minLon, minLat, maxLon, maxLat] = this.bounds;
                         const sw = maplibregl.MercatorCoordinate.fromLngLat([minLon, minLat]);
                         const ne = maplibregl.MercatorCoordinate.fromLngLat([maxLon, maxLat]);
-                        
-                        const positions = new Float32Array([
-                            sw.x, sw.y,
-                            ne.x, sw.y,
-                            sw.x, ne.y,
-                            ne.x, sw.y,
-                            ne.x, ne.y,
-                            sw.x, ne.y
-                        ]);
-                        
-                        const buffer = gl.createBuffer();
-                        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+                        // Reuse pre-allocated buffer and typed array
+                        const p = this.positions;
+                        p[0] = sw.x; p[1] = sw.y;
+                        p[2] = ne.x; p[3] = sw.y;
+                        p[4] = sw.x; p[5] = ne.y;
+                        p[6] = ne.x; p[7] = sw.y;
+                        p[8] = ne.x; p[9] = ne.y;
+                        p[10] = sw.x; p[11] = ne.y;
+
+                        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, p, gl.DYNAMIC_DRAW);
                         
                         gl.uniformMatrix4fv(this.matrixLocation, false, matrix);
                         
@@ -2642,8 +2702,6 @@
                         gl.enable(gl.BLEND);
                         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
                         gl.drawArrays(gl.TRIANGLES, 0, 6);
-                        
-                        gl.deleteBuffer(buffer);
                     }
                 };
                 
