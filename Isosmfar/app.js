@@ -2465,16 +2465,24 @@
                         const vs = gl.createShader(gl.VERTEX_SHADER);
                         gl.shaderSource(vs, vertexShader);
                         gl.compileShader(vs);
-                        
+                        if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+                            console.error('Vertex shader error:', gl.getShaderInfoLog(vs));
+                        }
+
                         const fs = gl.createShader(gl.FRAGMENT_SHADER);
                         gl.shaderSource(fs, fragmentShader);
                         gl.compileShader(fs);
-                        
+                        if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+                            console.error('Fragment shader error:', gl.getShaderInfoLog(fs));
+                        }
+
                         this.program = gl.createProgram();
                         gl.attachShader(this.program, vs);
                         gl.attachShader(this.program, fs);
                         gl.linkProgram(this.program);
-                        
+                        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+                            console.error('Program link error:', gl.getProgramInfoLog(this.program));
+                        }                        
                         this.gl = gl;
                         this.map = map;
 
@@ -2581,6 +2589,12 @@
                     },
                     
                     render: function(gl, args) {
+                        if (!this._loggedArgs) {
+                            console.log('MapLibre render args keys:', Object.keys(args));
+                            console.log('modelViewProjectionMatrix:', args.modelViewProjectionMatrix);
+                            console.log('defaultProjectionData:', args.defaultProjectionData);
+                            this._loggedArgs = true;
+                        }
                         const matrix = args.modelViewProjectionMatrix || args.defaultProjectionData.mainMatrix;
                         if (this.lastPalette !== this.currentPalette) {
                             this.updatePaletteTexture(gl);
