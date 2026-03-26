@@ -2590,7 +2590,7 @@
                     },
                     
                     render: function(gl, args) {
-                        const matrix = args.modelViewProjectionMatrix || args.defaultProjectionData.mainMatrix;
+                        const matrix = args.defaultProjectionData.mainMatrix;
                         if (this.lastPalette !== this.currentPalette) {
                             this.updatePaletteTexture(gl);
                             this.lastPalette = this.currentPalette;
