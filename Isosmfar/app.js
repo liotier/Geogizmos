@@ -2204,6 +2204,7 @@
                 const gradientLayer = {
                     id: 'gradient-field',
                     type: 'custom',
+                    renderingMode: '2d',
                     features: features,
                     bounds: bounds,
                     boundaryCoords: boundaryCoords,
@@ -2646,6 +2647,7 @@
                         gl.enableVertexAttribArray(this.positionLocation);
                         gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
                         
+                        gl.disable(gl.DEPTH_TEST);
                         gl.enable(gl.BLEND);
                         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
                         gl.drawArrays(gl.TRIANGLES, 0, 6);
