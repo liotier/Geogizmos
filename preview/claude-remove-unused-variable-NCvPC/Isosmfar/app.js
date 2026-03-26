@@ -2580,7 +2580,8 @@
                         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
                     },
                     
-                    render: function({ gl, modelViewProjectionMatrix: matrix }) {
+                    render: function(gl, args) {
+                        const matrix = args.modelViewProjectionMatrix || args.defaultProjectionData.mainMatrix;
                         if (this.lastPalette !== this.currentPalette) {
                             this.updatePaletteTexture(gl);
                             this.lastPalette = this.currentPalette;
