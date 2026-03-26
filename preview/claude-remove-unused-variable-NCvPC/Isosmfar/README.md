@@ -74,9 +74,13 @@ Isosmfar showcases several sophisticated web development techniques:
 - **Local storage preferences** – remembers your palette, basemap, and mode choices
 
 ### Performance Optimizations
+- **Voronoi Web Worker** – coalescing, Delaunay triangulation, and boundary clipping run in a dedicated Web Worker, keeping the UI responsive during slider adjustments
+- **O(n) spatial clustering** – grid-based bucketing with Union-Find replaces O(n³) complete-linkage for Voronoi coalescing
+- **Fast boundary clipping** – `turf.booleanWithin` skips expensive `turf.intersect` for Voronoi cells fully inside the boundary
+- **WebGL buffer reuse** – pre-allocated Float32Array and persistent GL buffer with DYNAMIC_DRAW avoid per-frame allocations
+- **Squared distance optimization** – fragment shader defers sqrt to the end, reducing per-feature cost in all four visualization modes
 - **Throttled rendering** at 60fps for smooth slider interactions
 - **Debounced operations** preventing excessive recomputation during user input
-- **Haversine distance calculations** performed directly in shader code
 - **Texture sampling** for both feature positions and color palettes
 - **Dynamic level-of-detail** – processes only visible area at current zoom
 - **Deduplication** of overlapping features to prevent redundant calculations
@@ -102,8 +106,8 @@ Isosmfar showcases several sophisticated web development techniques:
 
 - **JavaScript (ES6+)** – modern language features
 - **WebGL 2.0/1.0** – hardware-accelerated graphics rendering with adaptive capability detection
-- **[MapLibre GL JS](https://maplibre.org/)** – high-performance map display
-- **[Turf.js](https://turfjs.org/)** – spatial analysis and area calculations
+- **[MapLibre GL JS](https://maplibre.org/) v5** – high-performance map display
+- **[Turf.js](https://turfjs.org/) v7** – spatial analysis and area calculations
 - **[D3-Delaunay](https://d3js.org/d3-delaunay/voronoi)** – Voronoi diagram generation
 - **[Overpass API](https://overpass-api.de/)** – OSM feature queries
 - **[Nominatim](https://nominatim.org/)** – geocoding and area search
