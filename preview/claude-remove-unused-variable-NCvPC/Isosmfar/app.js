@@ -382,6 +382,18 @@
                 // Initialize cache for API results
                 this.cache = new CacheDB();
 
+                // Voronoi Web Worker for non-blocking computation
+                this.voronoiWorker = new Worker('voronoi-worker.js');
+                this.voronoiRequestId = 0;
+                this.voronoiWorker.onmessage = (e) => {
+                    const { voronoiGeoJSON, coalescedFeatures, coalesceInfo, requestId } = e.data;
+                    // Discard stale results from superseded requests
+                    if (requestId !== this.voronoiRequestId) return;
+                    this.voronoiGeoJSON = voronoiGeoJSON;
+                    document.getElementById('coalesce-info').textContent = coalesceInfo;
+                    this.updateVoronoiOverlay();
+                };
+
                 // Taginfo autocomplete caches
                 this.taginfoKeysCache = null;  // Cache of popular OSM keys
                 this.taginfoValuesCache = {};   // Cache of values per key
@@ -1647,14 +1659,11 @@
                     this.originalFeatures = features;
                     this.areaBoundary = boundary;
 
-                    this.showStatus('Computing Voronoi diagram...');
-                    await new Promise(resolve => setTimeout(resolve, 50));
-
-                    // Compute Voronoi diagram
-                    this.computeVoronoi(features, bounds, boundary);
-
                     this.showStatus('Rendering visualization...');
                     await new Promise(resolve => setTimeout(resolve, 50));
+
+                    // Compute Voronoi diagram in worker (non-blocking)
+                    this.computeVoronoiAsync(features, bounds, boundary);
 
                     this.renderWebGL(features, boundary, bounds);
                     
@@ -1781,12 +1790,22 @@
             
             recomputeVoronoi() {
                 if (!this.originalFeatures) return;
-                
+
                 const bounds = turf.bbox(this.areaBoundary);
-                this.computeVoronoi(this.originalFeatures, bounds, this.areaBoundary);
-                this.updateVoronoiOverlay();
+                this.computeVoronoiAsync(this.originalFeatures, bounds, this.areaBoundary);
             }
-            
+
+            computeVoronoiAsync(features, bounds, boundary) {
+                this.voronoiRequestId++;
+                this.voronoiWorker.postMessage({
+                    features,
+                    bounds,
+                    boundary,
+                    voronoiCoalesceKm: this.voronoiCoalesceKm,
+                    requestId: this.voronoiRequestId
+                });
+            }
+
             computeVoronoi(features, bounds, boundary) {
                 // Coalesce points if needed
                 const coalescedFeatures = this.coalescePoints(features, this.voronoiCoalesceKm);
