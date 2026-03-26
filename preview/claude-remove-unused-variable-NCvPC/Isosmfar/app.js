@@ -2589,12 +2589,6 @@
                     },
                     
                     render: function(gl, args) {
-                        if (!this._loggedArgs) {
-                            console.log('MapLibre render args keys:', Object.keys(args));
-                            console.log('modelViewProjectionMatrix:', args.modelViewProjectionMatrix);
-                            console.log('defaultProjectionData:', args.defaultProjectionData);
-                            this._loggedArgs = true;
-                        }
                         const matrix = args.modelViewProjectionMatrix || args.defaultProjectionData.mainMatrix;
                         if (this.lastPalette !== this.currentPalette) {
                             this.updatePaletteTexture(gl);
@@ -2619,7 +2613,7 @@
                         gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
                         gl.bufferData(gl.ARRAY_BUFFER, p, gl.DYNAMIC_DRAW);
                         
-                        gl.uniformMatrix4fv(this.matrixLocation, false, matrix);
+                        gl.uniformMatrix4fv(this.matrixLocation, false, new Float32Array(matrix));
                         
                         // Bind textures
                         gl.activeTexture(gl.TEXTURE0);
