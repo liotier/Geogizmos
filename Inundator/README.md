@@ -383,8 +383,11 @@ The current implementation prioritizes reliability and simplicity over raw speed
 **Architecture**:
 - **Web Workers**: Computation runs in background thread (UI remains responsive)
 - **Simple BFS Queue**: O(1) queue operations - just push/shift on array
+- **Running counters**: Left/right side cell counts maintained incrementally during flood fill, avoiding full array scans
 - **Stateful DEM Expansion**: Preserves flood state across terrain expansions (no restart)
-- **Parallel Tile Fetching**: Up to 8 concurrent DEM tile requests
+- **Parallel Tile Fetching**: Elevation tiles fetched concurrently with `Promise.all`
+- **Bitwise zoom math**: `1 << zoom` instead of `Math.pow(2, zoom)` for tile coordinate calculations
+- **DOM element caching**: Frequently updated status elements cached as instance properties
 - **Progressive Loading**: DEM tiles fetched only as needed
 - **Dynamic Expansion**: Starts with 10km radius, expands to 100km on demand
 - **Optimized Progress Updates**: Every 50k iterations to minimize overhead
@@ -411,11 +414,11 @@ The current implementation prioritizes reliability and simplicity over raw speed
 
 ## Dependencies
 
-- **MapLibre GL JS**: Map rendering (v3.6.2)
-- **Turf.js**: Geospatial operations (v6)
+- **MapLibre GL JS**: Map rendering (v5)
+- **Turf.js**: Geospatial operations (v7)
 - **D3 Arrays & Contours**: Marching squares algorithm for polygon generation (v3-4)
 
-All dependencies are loaded from CDN.
+All dependencies are loaded from jsDelivr CDN.
 
 ## Data Sources
 
