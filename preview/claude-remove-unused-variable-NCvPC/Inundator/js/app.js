@@ -166,6 +166,51 @@ export class InundatorApp {
                 this.hideLocationDropdown();
             }
         });
+
+        // Mobile menu toggle
+        this.initMobileMenu();
+    }
+
+    initMobileMenu() {
+        const sidebar = document.getElementById('sidebar');
+
+        // Create hamburger menu button
+        const menuToggle = document.createElement('button');
+        menuToggle.id = 'menu-toggle';
+        menuToggle.innerHTML = '<span></span><span></span><span></span>';
+        document.body.insertBefore(menuToggle, document.body.firstChild);
+
+        // Create mobile backdrop
+        const backdrop = document.createElement('div');
+        backdrop.id = 'mobile-backdrop';
+        document.body.appendChild(backdrop);
+
+        // Toggle menu on hamburger click
+        menuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sidebar.classList.toggle('open');
+            menuToggle.classList.toggle('active');
+            backdrop.classList.toggle('active');
+        });
+
+        // Close menu on backdrop click
+        backdrop.addEventListener('click', () => {
+            sidebar.classList.remove('open');
+            menuToggle.classList.remove('active');
+            backdrop.classList.remove('active');
+        });
+
+        // Close menu when clicking inside sidebar (after interaction)
+        sidebar.addEventListener('click', (e) => {
+            // Only close if clicking a button or completing an action
+            if (e.target.tagName === 'BUTTON' && window.innerWidth <= 600) {
+                setTimeout(() => {
+                    sidebar.classList.remove('open');
+                    menuToggle.classList.remove('active');
+                    backdrop.classList.remove('active');
+                }, 300);
+            }
+        });
     }
 
     // Location search
