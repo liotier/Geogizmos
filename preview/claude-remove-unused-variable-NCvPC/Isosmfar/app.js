@@ -1841,22 +1841,27 @@
                         try {
                             // Create a polygon from the cell - ensure closed
                             const cellCoords = [...cell];
-                            if (cellCoords[0][0] !== cellCoords[cellCoords.length - 1][0] || 
+                            if (cellCoords[0][0] !== cellCoords[cellCoords.length - 1][0] ||
                                 cellCoords[0][1] !== cellCoords[cellCoords.length - 1][1]) {
                                 cellCoords.push(cellCoords[0]);
                             }
-                            
+
                             const cellPolygon = turf.polygon([cellCoords]);
-                            
+
                             // Clip to boundary if available
                             let clippedCell = null;
                             if (boundaryFeature) {
                                 try {
-                                    const intersection = turf.intersect(turf.featureCollection([cellPolygon, boundaryFeature]));
-                                    if (intersection && intersection.geometry) {
-                                        clippedCell = intersection;
+                                    // Fast path: if cell is fully inside boundary, skip expensive intersection
+                                    if (turf.booleanWithin(cellPolygon, boundaryFeature)) {
+                                        clippedCell = cellPolygon;
                                     } else {
-                                        continue;
+                                        const intersection = turf.intersect(turf.featureCollection([cellPolygon, boundaryFeature]));
+                                        if (intersection && intersection.geometry) {
+                                            clippedCell = intersection;
+                                        } else {
+                                            continue;
+                                        }
                                     }
                                 } catch (e) {
                                     // Fall back to using unclipped cell
@@ -1890,13 +1895,17 @@
                                     for (let j = 0; j < exteriorRing.length - 1; j++) {
                                         const p1 = exteriorRing[j];
                                         const p2 = exteriorRing[j + 1];
-                                        
-                                        // Create unique edge key
-                                        const edgeKey = [
-                                            [p1[0].toFixed(6), p1[1].toFixed(6)].join(','),
-                                            [p2[0].toFixed(6), p2[1].toFixed(6)].join(',')
-                                        ].sort().join('|');
-                                        
+
+                                        // Quantize to ~0.1m and build numeric edge key (avoids string allocation)
+                                        const x1 = Math.round(p1[0] * 1e6);
+                                        const y1 = Math.round(p1[1] * 1e6);
+                                        const x2 = Math.round(p2[0] * 1e6);
+                                        const y2 = Math.round(p2[1] * 1e6);
+                                        // Order endpoints so (A,B) and (B,A) produce the same key
+                                        const edgeKey = x1 < x2 || (x1 === x2 && y1 < y2)
+                                            ? `${x1},${y1},${x2},${y2}`
+                                            : `${x2},${y2},${x1},${y1}`;
+
                                         // Only add each edge once
                                         if (!processedEdges.has(edgeKey)) {
                                             processedEdges.add(edgeKey);
