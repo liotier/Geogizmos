@@ -142,8 +142,8 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
         if (cell && cell.length > 2) {
             try {
                 const cellCoords = [...cell];
-                if (cellCoords[0][0] !== cellCoords[cellCoords.length - 1][0] ||
-                    cellCoords[0][1] !== cellCoords[cellCoords.length - 1][1]) {
+                if (cellCoords[0][0] !== cellCoords.at(-1)[0] ||
+                    cellCoords[0][1] !== cellCoords.at(-1)[1]) {
                     cellCoords.push(cellCoords[0]);
                 }
 
@@ -162,7 +162,8 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
                                 continue;
                             }
                         }
-                    } catch (e) {
+                    } catch (clipError) {
+                        console.warn('Error clipping Voronoi cell to boundary:', clipError);
                         clippedCell = cellPolygon;
                     }
                 } else {
@@ -175,9 +176,6 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
                         polygons = [clippedCell.geometry.coordinates];
                     } else if (clippedCell.geometry.type === 'MultiPolygon') {
                         polygons = clippedCell.geometry.coordinates;
-                    } else if (clippedCell.geometry.type === 'LineString' ||
-                              clippedCell.geometry.type === 'Point') {
-                        continue;
                     } else {
                         continue;
                     }

@@ -392,7 +392,7 @@
                 this.voronoiWorker = new Worker('voronoi-worker.js');
                 this.voronoiRequestId = 0;
                 this.voronoiWorker.onmessage = (e) => {
-                    const { voronoiGeoJSON, coalescedFeatures, coalesceInfo, requestId } = e.data;
+                    const { voronoiGeoJSON, coalesceInfo, requestId } = e.data;
                     // Discard stale results from superseded requests
                     if (requestId !== this.voronoiRequestId) return;
                     this.voronoiGeoJSON = voronoiGeoJSON;
@@ -1905,8 +1905,8 @@
                         try {
                             // Create a polygon from the cell - ensure closed
                             const cellCoords = [...cell];
-                            if (cellCoords[0][0] !== cellCoords[cellCoords.length - 1][0] ||
-                                cellCoords[0][1] !== cellCoords[cellCoords.length - 1][1]) {
+                            if (cellCoords[0][0] !== cellCoords.at(-1)[0] ||
+                                cellCoords[0][1] !== cellCoords.at(-1)[1]) {
                                 cellCoords.push(cellCoords[0]);
                             }
 
@@ -1943,12 +1943,7 @@
                                     polygons = [clippedCell.geometry.coordinates];
                                 } else if (clippedCell.geometry.type === 'MultiPolygon') {
                                     polygons = clippedCell.geometry.coordinates;
-                                } else if (clippedCell.geometry.type === 'LineString' || 
-                                          clippedCell.geometry.type === 'Point') {
-                                    // Skip non-polygon results
-                                    continue;
                                 } else {
-                                    console.warn('Unknown clipped cell type:', clippedCell.geometry.type);
                                     continue;
                                 }
                                 
