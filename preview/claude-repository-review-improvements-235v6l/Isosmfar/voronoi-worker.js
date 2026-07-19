@@ -1,9 +1,10 @@
 // Web Worker for Voronoi computation
 // Runs coalescing + Delaunay/Voronoi + boundary clipping off the main thread
 
+// Pinned to exact versions (importScripts doesn't support Subresource Integrity)
 importScripts(
-    'https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js',
-    'https://cdn.jsdelivr.net/npm/d3-delaunay@6'
+    'https://cdn.jsdelivr.net/npm/@turf/turf@7.3.5/turf.min.js',
+    'https://cdn.jsdelivr.net/npm/d3-delaunay@6.0.4'
 );
 
 function coalescePoints(features, distanceKm) {
@@ -11,16 +12,28 @@ function coalescePoints(features, distanceKm) {
         return features;
     }
 
-    const distanceDeg = distanceKm / 111;
-    const distSq = distanceDeg * distanceDeg;
-    const cellSize = distanceDeg;
+    // Work in a local equirectangular approximation (km) rather than raw
+    // degrees, so the coalesce distance is isotropic - a degree of longitude
+    // covers less ground distance than a degree of latitude away from the
+    // equator, and a plain degree-based threshold would ignore that.
+    let sumLat = 0;
+    for (const f of features) sumLat += f.lat;
+    const meanLat = sumLat / features.length;
+    const cosLat = Math.max(0.01, Math.cos(meanLat * Math.PI / 180)); // clamp near poles
+    const kmPerDegLat = 111.0;
+    const kmPerDegLon = 111.0 * cosLat;
+
+    const points = features.map(f => ({ x: f.lon * kmPerDegLon, y: f.lat * kmPerDegLat }));
+
+    const distSq = distanceKm * distanceKm;
+    const cellSize = distanceKm;
     const grid = new Map();
 
     const cellKey = (cx, cy) => `${cx},${cy}`;
 
-    for (let i = 0; i < features.length; i++) {
-        const cx = Math.floor(features[i].lon / cellSize);
-        const cy = Math.floor(features[i].lat / cellSize);
+    for (let i = 0; i < points.length; i++) {
+        const cx = Math.floor(points[i].x / cellSize);
+        const cy = Math.floor(points[i].y / cellSize);
         const key = cellKey(cx, cy);
         if (!grid.has(key)) grid.set(key, []);
         grid.get(key).push(i);
@@ -54,11 +67,11 @@ function coalescePoints(features, distanceKm) {
 
         for (let a = 0; a < indices.length; a++) {
             for (let b = a + 1; b < indices.length; b++) {
-                const fa = features[indices[a]];
-                const fb = features[indices[b]];
-                const dlat = fa.lat - fb.lat;
-                const dlon = fa.lon - fb.lon;
-                if (dlat * dlat + dlon * dlon <= distSq) {
+                const pa = points[indices[a]];
+                const pb = points[indices[b]];
+                const dx0 = pa.x - pb.x;
+                const dy0 = pa.y - pb.y;
+                if (dx0 * dx0 + dy0 * dy0 <= distSq) {
                     union(indices[a], indices[b]);
                 }
             }
@@ -73,11 +86,11 @@ function coalescePoints(features, distanceKm) {
 
                 for (const i of indices) {
                     for (const j of neighborIndices) {
-                        const fi = features[i];
-                        const fj = features[j];
-                        const dlat = fi.lat - fj.lat;
-                        const dlon = fi.lon - fj.lon;
-                        if (dlat * dlat + dlon * dlon <= distSq) {
+                        const pi = points[i];
+                        const pj = points[j];
+                        const dx0 = pi.x - pj.x;
+                        const dy0 = pi.y - pj.y;
+                        if (dx0 * dx0 + dy0 * dy0 <= distSq) {
                             union(i, j);
                         }
                     }
@@ -130,7 +143,7 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
         } else if (boundary.type === 'MultiPolygon') {
             boundaryFeature = turf.multiPolygon(boundary.coordinates);
         }
-    } catch (e) {
+    } catch {
         // proceed without boundary clipping
     }
 
@@ -208,7 +221,7 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
                         }
                     }
                 }
-            } catch (e) {
+            } catch {
                 // skip problematic cell
             }
         }
