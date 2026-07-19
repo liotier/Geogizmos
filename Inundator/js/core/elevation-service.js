@@ -206,8 +206,7 @@ export class ElevationService {
                 if (!imageData) {
                     // Fetch from network if not in IndexedDB
                     const url = `${CONFIG.dem.tileServer}/${tileKey}.png`;
-                    const response = await fetch(url);
-                    const blob = await response.blob();
+                    const blob = await this.fetchTileWithRetry(url);
                     imageData = await this.loadImageData(blob);
 
                     // Store in IndexedDB for future use

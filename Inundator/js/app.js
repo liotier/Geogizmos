@@ -10,6 +10,7 @@ import { PolygonGenerator } from './core/polygon-generator.js';
 import { Statistics } from './core/statistics.js';
 import { MapManager } from './ui/map-manager.js';
 import { Visualization } from './ui/visualization.js';
+import { retryWithBackoff } from './utils/retry.js';
 
 
 export class InundatorApp {
@@ -225,14 +226,22 @@ export class InundatorApp {
     // Location search
     async searchLocation(query) {
         try {
-            const response = await fetch(
-                `${CONFIG.geocoding.nominatimUrl}?format=jsonv2&q=${encodeURIComponent(query)}&limit=${CONFIG.geocoding.searchLimit}`
-            );
+            const results = await retryWithBackoff(async () => {
+                const response = await fetch(
+                    `${CONFIG.geocoding.nominatimUrl}?format=jsonv2&q=${encodeURIComponent(query)}&limit=${CONFIG.geocoding.searchLimit}`
+                );
 
-            const results = await response.json();
+                if (!response.ok) {
+                    throw new Error(`Nominatim API error: ${response.status} ${response.statusText}`);
+                }
+
+                return await response.json();
+            });
+
             this.showLocationResults(results);
         } catch (error) {
             console.error('Location search error:', error);
+            this.showMessage('Location search failed: ' + error.message, 'error');
         }
     }
 
@@ -681,7 +690,11 @@ export class InundatorApp {
     }
 
     showMessage(text, type = 'info') {
-        this.messagesEl.innerHTML = `<div class="message ${type}-message">${text}</div>`;
+        this.messagesEl.innerHTML = '';
+        const div = document.createElement('div');
+        div.className = `message ${type}-message`;
+        div.textContent = text;
+        this.messagesEl.appendChild(div);
 
         setTimeout(() => {
             this.messagesEl.innerHTML = '';

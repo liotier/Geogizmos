@@ -36,9 +36,10 @@
             DEFAULT_HEAT_BANDWIDTH: 0.3,
 
             // UI Timing
-            SEARCH_DEBOUNCE_MS: 300,
+            SEARCH_DEBOUNCE_MS: 500, // Light throttling of Nominatim requests while typing
             VORONOI_UPDATE_DEBOUNCE_MS: 200,
             MESSAGE_TIMEOUT_MS: 5000,
+            ERROR_MESSAGE_TIMEOUT_MS: 9000, // Errors stay up longer, especially valuable on mobile
             STATUS_HIDE_DELAY_MS: 1000,
             SLIDER_THROTTLE_MS: 16, // ~60fps
 
@@ -61,6 +62,10 @@
             CACHE_STORE_NAME: 'overpass_results',
             CACHE_MAX_AGE_DAYS: 7
         };
+
+        // Attribution strings per OSM's/CARTO's requirements (contributors, linked)
+        const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors';
+        const CARTO_ATTRIBUTION = OSM_ATTRIBUTION + ' © <a href="https://carto.com/attributions" target="_blank">CARTO</a>';
 
         // ============================================================================
         // UTILITY FUNCTIONS
@@ -158,7 +163,7 @@
                     }
                 }
             }
-            throw new Error(`Failed after ${maxRetries + 1} attempts: ${lastError.message}`);
+            throw new Error(`Failed after ${maxRetries + 1} attempts: ${lastError.message}`, { cause: lastError });
         }
 
         /**
@@ -404,6 +409,10 @@
                     this.voronoiGeoJSON = voronoiGeoJSON;
                     document.getElementById('coalesce-info').textContent = coalesceInfo;
                     this.updateVoronoiOverlay();
+                };
+                this.voronoiWorker.onerror = (e) => {
+                    console.error('Voronoi worker error:', e.message, e);
+                    this.showMessage('Voronoi computation failed: ' + e.message, 'error');
                 };
 
                 // Taginfo autocomplete caches
@@ -902,7 +911,7 @@
                                 type: 'raster',
                                 tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
                                 tileSize: 256,
-                                attribution: '© Openstreetmap'
+                                attribution: OSM_ATTRIBUTION
                             }
                         },
                         layers: [{
@@ -920,7 +929,7 @@
                 canvas.addEventListener('webglcontextlost', (event) => {
                     event.preventDefault();
                     console.error('WebGL context lost!');
-                    alert('WebGL context lost! This can happen on mobile due to memory constraints.');
+                    this.showMessage('WebGL context lost - this can happen on mobile due to memory constraints. Try reloading.', 'error');
                     this.showStatus('❌ WebGL context lost - try reloading');
                 }, false);
 
@@ -946,16 +955,16 @@
                     case 'humanitarian':
                         tiles = ['https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
                                 'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png'];
-                        attribution = '© Openstreetmap';
+                        attribution = OSM_ATTRIBUTION;
                         break;
                     case 'carto-light':
                         tiles = ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
                                 'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'];
-                        attribution = '© Openstreetmap © CARTO';
+                        attribution = CARTO_ATTRIBUTION;
                         break;
                     default: // standard
                         tiles = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
-                        attribution = '© Openstreetmap';
+                        attribution = OSM_ATTRIBUTION;
                 }
 
                 // Remove old source and layer
@@ -1186,7 +1195,7 @@
 
                     this.searchTimeout = setTimeout(() => {
                         this.searchArea(query);
-                    }, 300);
+                    }, CONFIG.SEARCH_DEBOUNCE_MS);
                 });
 
                 // Query autocomplete using Taginfo
@@ -1723,16 +1732,12 @@
                 } catch (error) {
                     console.error('Error in generate():', error);
                     const errorMsg = error.message || 'An error occurred';
+                    // showMessage() keeps errors up longer (CONFIG.ERROR_MESSAGE_TIMEOUT_MS),
+                    // which is enough visibility on mobile without a blocking alert()
                     this.showMessage(errorMsg, 'error');
 
-                    // Make errors impossible to miss on mobile
                     this.showStatus('❌ Error: ' + errorMsg);
                     setTimeout(() => this.hideStatus(), 5000);
-
-                    // Also use alert for critical visibility on mobile
-                    if (window.innerWidth <= 600) {
-                        setTimeout(() => alert('Error: ' + errorMsg), 100);
-                    }
                 }
             }
             
@@ -2696,10 +2701,15 @@
              */
             showMessage(text, type = 'info') {
                 const messages = document.getElementById('messages');
-                messages.innerHTML = `<div class="message ${type}-message">${text}</div>`;
+                messages.innerHTML = '';
+                const div = document.createElement('div');
+                div.className = `message ${type}-message`;
+                div.textContent = text;
+                messages.appendChild(div);
+                const timeout = type === 'error' ? CONFIG.ERROR_MESSAGE_TIMEOUT_MS : CONFIG.MESSAGE_TIMEOUT_MS;
                 setTimeout(() => {
                     messages.innerHTML = '';
-                }, CONFIG.MESSAGE_TIMEOUT_MS);
+                }, timeout);
             }
         }
 
@@ -2729,10 +2739,8 @@
                 console.error('Turf.js not loaded');
                 return;
             }
-            if (typeof d3 === 'undefined') {
-                console.error('D3 Delaunay not loaded');
-                return;
-            }
+            // D3-Delaunay runs inside voronoi-worker.js (its own importScripts) -
+            // not loaded on the main thread
 
             // Initialize app
             const app = new IsosmfarApp();

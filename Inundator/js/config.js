@@ -3,6 +3,12 @@
  * All tunable parameters in one place
  */
 
+// Attribution strings, per each provider's requirements (contributors, linked).
+// Every basemap gets the elevation-data credit too, since flood computation
+// depends on the Terrarium DEM regardless of which basemap is selected.
+const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors';
+const ELEVATION_ATTRIBUTION = 'Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/data-sources.md" target="_blank">Mapzen terrain tiles</a> (SRTM, USGS, and others)';
+
 export const CONFIG = {
     // DEM Data Configuration
     dem: {
@@ -111,17 +117,17 @@ export const CONFIG = {
         basemaps: {
             topo: {
                 tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-                attribution: '© OpenTopoMap (CC-BY-SA)',
+                attribution: `Map data: ${OSM_ATTRIBUTION}, SRTM | Map display: © OpenTopoMap (CC-BY-SA) | ${ELEVATION_ATTRIBUTION}`,
                 maxzoom: 15
             },
             osm: {
                 tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                attribution: '© OpenStreetMap',
+                attribution: `${OSM_ATTRIBUTION} | ${ELEVATION_ATTRIBUTION}`,
                 maxzoom: 19
             },
             satellite: {
                 tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-                attribution: '© Esri',
+                attribution: `© Esri | ${ELEVATION_ATTRIBUTION}`,
                 maxzoom: 19
             }
         }

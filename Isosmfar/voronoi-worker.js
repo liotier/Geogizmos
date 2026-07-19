@@ -1,9 +1,10 @@
 // Web Worker for Voronoi computation
 // Runs coalescing + Delaunay/Voronoi + boundary clipping off the main thread
 
+// Pinned to exact versions (importScripts doesn't support Subresource Integrity)
 importScripts(
-    'https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js',
-    'https://cdn.jsdelivr.net/npm/d3-delaunay@6'
+    'https://cdn.jsdelivr.net/npm/@turf/turf@7.3.5/turf.min.js',
+    'https://cdn.jsdelivr.net/npm/d3-delaunay@6.0.4'
 );
 
 function coalescePoints(features, distanceKm) {

@@ -415,11 +415,12 @@ The current implementation prioritizes reliability and simplicity over raw speed
 
 ## Dependencies
 
-- **MapLibre GL JS**: Map rendering (v5)
-- **Turf.js**: Geospatial operations (v7)
-- **D3 Arrays & Contours**: Marching squares algorithm for polygon generation (v3-4)
+- **MapLibre GL JS**: Map rendering (v5.24.0)
+- **Turf.js**: Geospatial operations (v7.3.5)
+- **D3 Arrays & Contours**: Marching squares algorithm for polygon generation (v3.2.4 / v4.0.2)
 
-All dependencies are loaded from jsDelivr CDN.
+All dependencies are loaded from jsDelivr CDN, pinned to exact versions with
+Subresource Integrity hashes in `index.html`.
 
 ## Data Sources
 

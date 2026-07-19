@@ -106,16 +106,19 @@ Isosmfar showcases several sophisticated web development techniques:
 
 - **JavaScript (ES6+)** – modern language features
 - **WebGL 2.0/1.0** – hardware-accelerated graphics rendering with adaptive capability detection
-- **[MapLibre GL JS](https://maplibre.org/) v5** – high-performance map display
-- **[Turf.js](https://turfjs.org/) v7** – spatial analysis and area calculations
-- **[D3-Delaunay](https://d3js.org/d3-delaunay/voronoi)** – Voronoi diagram generation
+- **[MapLibre GL JS](https://maplibre.org/) v5.24.0** – high-performance map display
+- **[Turf.js](https://turfjs.org/) v7.3.5** – spatial analysis and area calculations
+- **[D3-Delaunay](https://d3js.org/d3-delaunay/voronoi) v6.0.4** – Voronoi diagram generation (runs in a Web Worker)
 - **[Overpass API](https://overpass-api.de/)** – OSM feature queries
 - **[Nominatim](https://nominatim.org/)** – geocoding and area search
 - **Custom GLSL Shaders** – GPU-based distance field computation
 - **IndexedDB** – local caching of API results
-- **Service Workers** – offline functionality and resource caching
 - **Local Storage** – user preference persistence
 - **URL State Management** – shareable visualization links
+
+All CDN dependencies are pinned to exact versions with Subresource Integrity
+hashes (worker `importScripts` are pinned to exact versions only, since
+`importScripts` doesn't support SRI).
 
 ## 📖 How It Works
 

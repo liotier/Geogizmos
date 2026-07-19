@@ -15,8 +15,9 @@
     <meta property="og:url" content="https://liotier.github.io/Geogizmos/Inundator/">
     <meta property="og:image" content="https://raw.githubusercontent.com/liotier/Geogizmos/refs/heads/main/Inundator/Screenshot_2025-11-20_Inundator_Interactive_Reservoir_Inundation_Simulator.png">
 
-    <!-- MapLibre GL -->
-    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet" />
+    <!-- MapLibre GL (pinned to exact version with Subresource Integrity) -->
+    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet"
+          integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous" />
 
     <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
@@ -116,11 +117,15 @@
         </div>
     </div>
 
-    <!-- External Dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3-array@3"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3-contour@4"></script>
+    <!-- External Dependencies (pinned to exact versions with Subresource Integrity) -->
+    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"
+            integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.3.5/turf.min.js"
+            integrity="sha384-BQF91ViEyKh73QVOKMd0MfkJ7bWbu+o0g448Qfb7aP3HVPItiy/4UZ7OuTCUDKNi" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-array@3.2.4"
+            integrity="sha384-VpKMdU+TlpggHFip46tJ/xkFUs8NFBwLqUMo3+3uiu411lU6eUQYsHVU+JFpA5ja" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-contour@4.0.2"
+            integrity="sha384-ULvy/kM7pqaUDdpGLhxvgwC7kwtteOvp2qVeppW5E4Uo8Jfr8t7igC4km1rNKpop" crossorigin="anonymous"></script>
 
     <!-- Application (ES6 Module) -->
     <script type="module" src="js/app.js"></script>
