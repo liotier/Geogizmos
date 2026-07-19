@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inundator - Interactive Reservoir Inundation Visualization</title>
+
+    <!-- SEO meta description -->
+    <meta name="description" content="Interactive dam simulation: place a dam on any river and watch the reservoir fill. Visualize inundation extent using real elevation data.">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Inundator - Interactive Reservoir Inundation Simulator">
+    <meta property="og:description" content="Interactive dam simulation: place a dam on any river and watch the reservoir fill. Visualize inundation extent using real elevation data.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://liotier.github.io/Geogizmos/Inundator/">
+    <meta property="og:image" content="https://raw.githubusercontent.com/liotier/Geogizmos/refs/heads/main/Inundator/Screenshot_2025-11-20_Inundator_Interactive_Reservoir_Inundation_Simulator.png">
+
+    <!-- MapLibre GL -->
+    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet" />
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <div id="sidebar">
+            <div id="header">
+                <h1>Inundator</h1>
+                <div class="subtitle">Interactive reservoir inundation visualization</div>
+            </div>
+
+            <div id="controls">
+                <div id="messages"></div>
+
+                <!-- Location Search -->
+                <div class="control-group">
+                    <label>Location</label>
+                    <div class="location-input-container">
+                        <input type="text" id="location-search" placeholder="Search for a location..." value="Grand Pic de la Meije">
+                        <div id="location-results" class="dropdown"></div>
+                    </div>
+                    <div class="help-text">Search for valleys or dam sites</div>
+                </div>
+
+                <!-- Dam Drawing Controls -->
+                <div class="control-group">
+                    <label>Dam definition</label>
+                    <button id="draw-dam-btn" class="primary">
+                        <span id="draw-dam-text">Draw dam line</span>
+                    </button>
+                    <button id="clear-dam-btn" disabled>Clear dam</button>
+                </div>
+
+                <!-- Base Map Selection -->
+                <div class="control-group large-spacing">
+                    <label>Base map</label>
+                    <select id="basemap-selector">
+                        <option value="topo" selected>OpenTopoMap</option>
+                        <option value="osm">OpenStreetMap standard</option>
+                        <option value="satellite">Satellite</option>
+                    </select>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="control-group">
+                    <button id="compute-btn" class="primary" disabled>Compute inundation</button>
+                    <button id="export-png" disabled>Export PNG</button>
+                    <button id="export-geojson" disabled>Export GeoJSON</button>
+                </div>
+
+                <!-- Statistics -->
+                <div id="stats" class="stats" style="display: none;">
+                    <div class="stats-row">
+                        <span class="stats-label">Surface area:</span>
+                        <span class="stats-value" id="stat-area">-</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Volume:</span>
+                        <span class="stats-value" id="stat-volume">-</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Max depth:</span>
+                        <span class="stats-value" id="stat-depth">-</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Dam length:</span>
+                        <span class="stats-value" id="stat-dam-length">-</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Avg depth:</span>
+                        <span class="stats-value" id="stat-avg-depth">-</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-label">Elapsed time:</span>
+                        <span class="stats-value" id="stat-elapsed-time">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="footer">
+                <p>Jean-Marc Liotier loves dams !</p>
+                <p><a href="https://github.com/liotier/Geogizmos/tree/main/Inundator" target="_blank">View on GitHub</a></p>
+            </div>
+        </div>
+
+        <div id="map-container">
+            <div id="map"></div>
+            <div id="drawing-hint" class="drawing-hint">Click on the map to draw dam endpoints</div>
+            <div id="status-message"></div>
+            <div id="status">
+                <div id="status-text">Ready</div>
+                <div id="progress-bar">
+                    <div id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- External Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-array@3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-contour@4"></script>
+
+    <!-- Application (ES6 Module) -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
