@@ -75,11 +75,11 @@
                 <!-- Mode toggle (now with 4 options in 2x2 grid) -->
                 <div class="mode-toggle">
                     <label class="mode-toggle-label">Visualization mode</label>
-                    <div class="toggle-buttons">
-                        <div class="toggle-button active" data-mode="distance" data-tooltip="Shows how far away you are from the nearest feature. Darker colors mean closer proximity. Great for finding underserved areas.">Distance Field</div>
-                        <div class="toggle-button" data-mode="density" data-tooltip="Shows concentration of features in an area. Brighter colors indicate more features nearby. Perfect for identifying hotspots.">Density Field</div>
-                        <div class="toggle-button" data-mode="idw" data-tooltip="Inverse Distance Weighting: A classic GIS interpolation method. Creates smooth gradients based on weighted influence from all nearby points.">IDW</div>
-                        <div class="toggle-button" data-mode="heat" data-tooltip="Simulates heat diffusing from source points. Creates smooth, natural-looking heat maps commonly used in data visualization.">Heat Diffusion</div>
+                    <div class="toggle-buttons" role="group" aria-label="Visualization mode">
+                        <button type="button" class="toggle-button active" data-mode="distance" aria-pressed="true" data-tooltip="Shows how far away you are from the nearest feature. Darker colors mean closer proximity. Great for finding underserved areas.">Distance Field</button>
+                        <button type="button" class="toggle-button" data-mode="density" aria-pressed="false" data-tooltip="Shows concentration of features in an area. Brighter colors indicate more features nearby. Perfect for identifying hotspots.">Density Field</button>
+                        <button type="button" class="toggle-button" data-mode="idw" aria-pressed="false" data-tooltip="Inverse Distance Weighting: A classic GIS interpolation method. Creates smooth gradients based on weighted influence from all nearby points.">IDW</button>
+                        <button type="button" class="toggle-button" data-mode="heat" aria-pressed="false" data-tooltip="Simulates heat diffusing from source points. Creates smooth, natural-looking heat maps commonly used in data visualization.">Heat Diffusion</button>
                     </div>
                 </div>
 

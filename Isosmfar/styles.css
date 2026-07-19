@@ -225,6 +225,13 @@ button.primary:hover:not(:disabled) {
 }
 
 .toggle-button {
+    /* Reset native <button> chrome so it matches the previous <div>-based styling */
+    -webkit-appearance: none;
+    appearance: none;
+    font-family: inherit;
+    margin: 0;
+    width: 100%;
+
     padding: 12px 8px; /* Increased for better touch targets */
     border: 1px solid var(--border);
     background: white;

@@ -419,6 +419,7 @@
                 this.taginfoKeysCache = null;  // Cache of popular OSM keys
                 this.taginfoValuesCache = {};   // Cache of values per key
                 this.selectedQueryIndex = -1;   // Currently selected dropdown index for keyboard navigation
+                this.selectedAreaIndex = -1;    // Currently selected area-dropdown index for keyboard navigation
                 this.currentQueryTagInfo = null; // Current tag info for keyboard selection
                 this.currentQueryCursorPos = 0;  // Cursor position when dropdown was shown
 
@@ -458,6 +459,7 @@
                 // UI State
                 // =================================================================
                 this.draggingCursor = null;
+                this.sliderRefs = {}; // type -> {cursor, track}, populated by initSlider()
                 this.voronoiUpdateTimer = null;
 
                 // Create throttled visualization update for slider drag performance
@@ -612,11 +614,9 @@
                 // Set visualization mode buttons
                 const modeButtons = document.querySelectorAll('.toggle-button');
                 modeButtons.forEach(btn => {
-                    if (btn.dataset.mode === this.visualizationMode) {
-                        btn.classList.add('active');
-                    } else {
-                        btn.classList.remove('active');
-                    }
+                    const isActive = btn.dataset.mode === this.visualizationMode;
+                    btn.classList.toggle('active', isActive);
+                    btn.setAttribute('aria-pressed', String(isActive));
                 });
 
                 // Update palette selector display
@@ -657,6 +657,18 @@
                 // Update slider value displays
                 this.updateSliderValues();
                 this.updateCoalesceValue();
+
+                // Sync ARIA value attributes to match the restored state
+                document.getElementById('distance-cursor').setAttribute('aria-valuenow', String(this.maxDistanceKm));
+                document.getElementById('distance-cursor').setAttribute('aria-valuetext', document.getElementById('distance-value').textContent);
+                document.getElementById('transparency-cursor').setAttribute('aria-valuenow', String(Math.round(this.transparency * 100)));
+                document.getElementById('transparency-cursor').setAttribute('aria-valuetext', document.getElementById('transparency-value').textContent);
+                document.getElementById('idw-power-cursor').setAttribute('aria-valuenow', String(this.idwPower));
+                document.getElementById('idw-power-cursor').setAttribute('aria-valuetext', this.idwPower.toFixed(1));
+                document.getElementById('heat-bandwidth-cursor').setAttribute('aria-valuenow', String(Math.round(this.heatBandwidth * 100)));
+                document.getElementById('heat-bandwidth-cursor').setAttribute('aria-valuetext', document.getElementById('heat-bandwidth-value').textContent);
+                document.getElementById('coalesce-cursor').setAttribute('aria-valuenow', String(this.voronoiCoalesceKm));
+                document.getElementById('coalesce-cursor').setAttribute('aria-valuetext', document.getElementById('coalesce-value').textContent);
 
                 // Update UI for current mode
                 this.updateUIForMode();
@@ -718,8 +730,12 @@
                 toggleButtons.forEach(button => {
                     button.addEventListener('click', () => {
                         // Update active state
-                        toggleButtons.forEach(b => b.classList.remove('active'));
+                        toggleButtons.forEach(b => {
+                            b.classList.remove('active');
+                            b.setAttribute('aria-pressed', 'false');
+                        });
                         button.classList.add('active');
+                        button.setAttribute('aria-pressed', 'true');
 
                         // Update mode
                         this.visualizationMode = button.dataset.mode;
@@ -739,23 +755,8 @@
             }
             
             initModeSpecificSliders() {
-                // IDW Power slider
-                const idwPowerCursor = document.getElementById('idw-power-cursor');
-                const idwPowerSlider = document.getElementById('idw-power-slider');
-                
-                idwPowerCursor.addEventListener('mousedown', (e) => {
-                    this.draggingCursor = { cursor: idwPowerCursor, slider: idwPowerSlider, type: 'idw-power' };
-                    e.preventDefault();
-                });
-
-                // Heat Bandwidth slider
-                const heatBandwidthCursor = document.getElementById('heat-bandwidth-cursor');
-                const heatBandwidthSlider = document.getElementById('heat-bandwidth-slider');
-
-                heatBandwidthCursor.addEventListener('mousedown', (e) => {
-                    this.draggingCursor = { cursor: heatBandwidthCursor, slider: heatBandwidthSlider, type: 'heat-bandwidth' };
-                    e.preventDefault();
-                });
+                this.initSlider('idw-power', 'idw-power-cursor', 'idw-power-slider', 'IDW Power');
+                this.initSlider('heat-bandwidth', 'heat-bandwidth-cursor', 'heat-bandwidth-slider', 'Heat Bandwidth');
             }
             
             initVoronoiCheckbox() {
@@ -776,13 +777,7 @@
             }
             
             initCoalesceSlider() {
-                const coalesceCursor = document.getElementById('coalesce-cursor');
-                const coalesceSlider = document.getElementById('coalesce-slider');
-                
-                coalesceCursor.addEventListener('mousedown', (e) => {
-                    this.draggingCursor = { cursor: coalesceCursor, slider: coalesceSlider, type: 'coalesce' };
-                    e.preventDefault();
-                });
+                this.initSlider('coalesce', 'coalesce-cursor', 'coalesce-slider', 'Voronoi coalesce distance');
             }
             
             updateUIForMode() {
@@ -809,6 +804,8 @@
                     radiusTooltip.dataset.tooltip = 'Maximum heat spread from source points';
                     document.getElementById('heat-controls').classList.add('active');
                 }
+
+                document.getElementById('distance-cursor').setAttribute('aria-label', radiusLabel.textContent);
             }
             
             hexToRgb(hex) {
@@ -1010,96 +1007,184 @@
                 }
             }
 
+            // Static ARIA min/max per slider type (distance's max is set dynamically
+            // in generate() once the area-dependent limit is known)
+            static SLIDER_ARIA_RANGE = {
+                distance: { min: CONFIG.MIN_DISTANCE_KM },
+                transparency: { min: 0, max: 100 },
+                coalesce: { min: 0, max: CONFIG.MAX_VORONOI_COALESCE_KM },
+                'idw-power': { min: 1.0, max: 5.0 },
+                'heat-bandwidth': { min: 10, max: 100 }
+            };
+
+            /**
+             * Wire up one custom slider: pointer drag (mouse, touch, pen, with
+             * capture so the drag keeps tracking outside the element) and keyboard
+             * (arrow keys, Home/End), plus the ARIA attributes that make both the
+             * value and the interaction model available to assistive tech.
+             */
+            initSlider(type, cursorId, sliderId, ariaLabel) {
+                const cursor = document.getElementById(cursorId);
+                const track = document.getElementById(sliderId);
+                this.sliderRefs[type] = { cursor, track };
+
+                cursor.setAttribute('role', 'slider');
+                cursor.setAttribute('tabindex', '0');
+                cursor.setAttribute('aria-orientation', 'horizontal');
+                if (ariaLabel) cursor.setAttribute('aria-label', ariaLabel);
+
+                const range = IsosmfarApp.SLIDER_ARIA_RANGE[type];
+                if (range) {
+                    cursor.setAttribute('aria-valuemin', String(range.min));
+                    if (range.max !== undefined) cursor.setAttribute('aria-valuemax', String(range.max));
+                }
+
+                cursor.addEventListener('pointerdown', (e) => {
+                    this.draggingCursor = { cursor, slider: track, type };
+                    cursor.setPointerCapture(e.pointerId);
+                    e.preventDefault();
+                });
+
+                cursor.addEventListener('keydown', (e) => {
+                    this.handleSliderKeydown(type, e);
+                });
+            }
+
+            /**
+             * Apply a 0-100 track percentage to the given slider type: updates the
+             * cursor position, the underlying value (using each slider's own scale -
+             * exponential for distance/coalesce, linear for the rest), the visible
+             * value label, ARIA value attributes, and triggers the appropriate
+             * (throttled or debounced) visualization update.
+             */
+            applySliderPercent(type, percent) {
+                const cursor = this.sliderRefs[type].cursor;
+                cursor.style.left = percent + '%';
+
+                if (type === 'distance') {
+                    // Use exponential scale for better control at lower values
+                    const logValue = percent / 100;
+                    // Calculate distance with exponential scale, minimum configured
+                    const calculatedDistance = Math.pow(this.maxDistanceLimit / CONFIG.MIN_DISTANCE_KM, logValue) * CONFIG.MIN_DISTANCE_KM;
+                    this.maxDistanceKm = Math.min(calculatedDistance, this.maxDistanceLimit);
+                    // Round to appropriate precision based on scale
+                    if (this.maxDistanceKm < 1) {
+                        this.maxDistanceKm = Math.round(this.maxDistanceKm * 100) / 100;
+                    } else {
+                        this.maxDistanceKm = Math.round(this.maxDistanceKm);
+                    }
+                    this.updateSliderValues();
+                    this.throttledVisualizationUpdate();
+                    cursor.setAttribute('aria-valuenow', String(this.maxDistanceKm));
+                    cursor.setAttribute('aria-valuetext', document.getElementById('distance-value').textContent);
+                } else if (type === 'transparency') {
+                    this.transparency = percent / 100;
+                    this.updateSliderValues();
+                    this.throttledVisualizationUpdate();
+                    cursor.setAttribute('aria-valuenow', String(Math.round(this.transparency * 100)));
+                    cursor.setAttribute('aria-valuetext', document.getElementById('transparency-value').textContent);
+                } else if (type === 'coalesce') {
+                    // Exponential scale from 0 to max configured
+                    if (percent === 0) {
+                        this.voronoiCoalesceKm = 0;
+                    } else {
+                        const logValue = percent / 100;
+                        this.voronoiCoalesceKm = Math.pow(CONFIG.MAX_VORONOI_COALESCE_KM / 0.001, logValue) * 0.001;
+                        if (this.voronoiCoalesceKm < 0.01) {
+                            this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 1000) / 1000;
+                        } else if (this.voronoiCoalesceKm < 1) {
+                            this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 100) / 100;
+                        } else {
+                            this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 10) / 10;
+                        }
+                    }
+                    this.updateCoalesceValue();
+                    this.debouncedVoronoiUpdate();
+                    cursor.setAttribute('aria-valuenow', String(this.voronoiCoalesceKm));
+                    cursor.setAttribute('aria-valuetext', document.getElementById('coalesce-value').textContent);
+                } else if (type === 'idw-power') {
+                    // Linear scale from 1.0 to 5.0
+                    this.idwPower = 1.0 + (percent / 100) * 4.0;
+                    this.idwPower = Math.round(this.idwPower * 10) / 10;
+                    document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
+                    this.throttledVisualizationUpdate();
+                    cursor.setAttribute('aria-valuenow', String(this.idwPower));
+                    cursor.setAttribute('aria-valuetext', this.idwPower.toFixed(1));
+                } else if (type === 'heat-bandwidth') {
+                    // Linear scale from 0.1 to 1.0 (10% to 100%)
+                    this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
+                    this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
+                    document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
+                    this.throttledVisualizationUpdate();
+                    cursor.setAttribute('aria-valuenow', String(Math.round(this.heatBandwidth * 100)));
+                    cursor.setAttribute('aria-valuetext', document.getElementById('heat-bandwidth-value').textContent);
+                }
+            }
+
+            /**
+             * Finalize a slider change (drag end or a keyboard step): cancel any
+             * pending throttled update, apply the final state directly, and persist it.
+             */
+            commitSliderChange() {
+                this.throttledVisualizationUpdate.cancel();
+                this.updateVisualization();
+                this.saveState();
+            }
+
+            /**
+             * Keyboard interaction for a slider cursor: arrow keys step by 2%,
+             * Home/End jump to the extremes. Each press is a complete, discrete
+             * action (unlike a drag), so it commits immediately.
+             */
+            handleSliderKeydown(type, e) {
+                const STEP_PERCENT = 2;
+                const cursor = this.sliderRefs[type].cursor;
+                const current = Number.parseFloat(cursor.style.left) || 0;
+                let percent;
+
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+                    percent = Math.max(0, current - STEP_PERCENT);
+                } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+                    percent = Math.min(100, current + STEP_PERCENT);
+                } else if (e.key === 'Home') {
+                    percent = 0;
+                } else if (e.key === 'End') {
+                    percent = 100;
+                } else {
+                    return; // Not a key this slider handles
+                }
+
+                e.preventDefault();
+                this.applySliderPercent(type, percent);
+                this.commitSliderChange();
+            }
+
             initSliderControls() {
-                const distanceCursor = document.getElementById('distance-cursor');
-                const distanceSlider = document.getElementById('distance-slider');
-                const transparencyCursor = document.getElementById('transparency-cursor');
-                const transparencySlider = document.getElementById('transparency-slider');
+                this.initSlider('distance', 'distance-cursor', 'distance-slider', 'Gradient radius');
+                this.initSlider('transparency', 'transparency-cursor', 'transparency-slider', 'Transparency');
 
-                distanceCursor.addEventListener('mousedown', (e) => {
-                    this.draggingCursor = { cursor: distanceCursor, slider: distanceSlider, type: 'distance' };
-                    e.preventDefault();
-                });
-
-                transparencyCursor.addEventListener('mousedown', (e) => {
-                    this.draggingCursor = { cursor: transparencyCursor, slider: transparencySlider, type: 'transparency' };
-                    e.preventDefault();
-                });
-
-                document.addEventListener('mousemove', (e) => {
+                document.addEventListener('pointermove', (e) => {
                     if (!this.draggingCursor) return;
 
                     const rect = this.draggingCursor.slider.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
 
-                    this.draggingCursor.cursor.style.left = percent + '%';
-
-                    if (this.draggingCursor.type === 'distance') {
-                        // Use exponential scale for better control at lower values
-                        const logValue = percent / 100;
-                        // Calculate distance with exponential scale, minimum configured
-                        const calculatedDistance = Math.pow(this.maxDistanceLimit / CONFIG.MIN_DISTANCE_KM, logValue) * CONFIG.MIN_DISTANCE_KM;
-                        this.maxDistanceKm = Math.min(calculatedDistance, this.maxDistanceLimit);
-                        // Round to appropriate precision based on scale
-                        if (this.maxDistanceKm < 1) {
-                            this.maxDistanceKm = Math.round(this.maxDistanceKm * 100) / 100;
-                        } else {
-                            this.maxDistanceKm = Math.round(this.maxDistanceKm);
-                        }
-                        this.updateSliderValues();
-                        this.throttledVisualizationUpdate();
-                    } else if (this.draggingCursor.type === 'transparency') {
-                        this.transparency = percent / 100;
-                        this.updateSliderValues();
-                        this.throttledVisualizationUpdate();
-                    } else if (this.draggingCursor.type === 'coalesce') {
-                        // Exponential scale from 0 to max configured
-                        if (percent === 0) {
-                            this.voronoiCoalesceKm = 0;
-                        } else {
-                            const logValue = percent / 100;
-                            this.voronoiCoalesceKm = Math.pow(CONFIG.MAX_VORONOI_COALESCE_KM / 0.001, logValue) * 0.001;
-                            if (this.voronoiCoalesceKm < 0.01) {
-                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 1000) / 1000;
-                            } else if (this.voronoiCoalesceKm < 1) {
-                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 100) / 100;
-                            } else {
-                                this.voronoiCoalesceKm = Math.round(this.voronoiCoalesceKm * 10) / 10;
-                            }
-                        }
-                        this.updateCoalesceValue();
-                        this.debouncedVoronoiUpdate();
-                    } else if (this.draggingCursor.type === 'idw-power') {
-                        // Linear scale from 1.0 to 5.0
-                        this.idwPower = 1.0 + (percent / 100) * 4.0;
-                        this.idwPower = Math.round(this.idwPower * 10) / 10;
-                        document.getElementById('idw-power-value').textContent = this.idwPower.toFixed(1);
-                        this.throttledVisualizationUpdate();
-                    } else if (this.draggingCursor.type === 'heat-bandwidth') {
-                        // Linear scale from 0.1 to 1.0 (10% to 100%)
-                        this.heatBandwidth = 0.1 + (percent / 100) * 0.9;
-                        this.heatBandwidth = Math.round(this.heatBandwidth * 100) / 100;
-                        document.getElementById('heat-bandwidth-value').textContent = `${Math.round(this.heatBandwidth * 100)}%`;
-                        this.throttledVisualizationUpdate();
-                    }
+                    this.applySliderPercent(this.draggingCursor.type, percent);
                 });
 
-                document.addEventListener('mouseup', () => {
+                document.addEventListener('pointerup', () => {
                     if (this.draggingCursor) {
-                        // Cancel any pending throttled updates to prevent sticky behavior
-                        this.throttledVisualizationUpdate.cancel();
-
-                        // Do final direct update to ensure accurate final state
-                        this.updateVisualization();
-
-                        // Save state when drag ends
-                        this.saveState();
+                        this.commitSliderChange();
                     }
                     this.draggingCursor = null;
                 });
+
+                document.addEventListener('pointercancel', () => {
+                    this.draggingCursor = null;
+                });
             }
-            
+
             updateSliderValues() {
                 // Display distance with appropriate units
                 let distanceText;
@@ -1218,34 +1303,24 @@
                     }, 300);
                 });
 
+                // Keyboard navigation for area autocomplete
+                document.getElementById('area').addEventListener('keydown', (e) => {
+                    this.handleDropdownKeydown(
+                        e, 'area-results',
+                        () => this.selectedAreaIndex,
+                        (i) => { this.selectedAreaIndex = i; },
+                        () => this.hideDropdown()
+                    );
+                });
+
                 // Keyboard navigation for query autocomplete
                 document.getElementById('query').addEventListener('keydown', (e) => {
-                    const dropdown = document.getElementById('query-results');
-                    if (!dropdown.classList.contains('active')) {
-                        return;
-                    }
-
-                    const items = dropdown.querySelectorAll('.dropdown-item');
-                    if (items.length === 0) {
-                        return;
-                    }
-
-                    if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        this.selectedQueryIndex = Math.min(this.selectedQueryIndex + 1, items.length - 1);
-                        this.updateQueryDropdownSelection(items);
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        this.selectedQueryIndex = Math.max(this.selectedQueryIndex - 1, 0);
-                        this.updateQueryDropdownSelection(items);
-                    } else if (e.key === 'Enter' || e.key === 'Tab') {
-                        if (this.selectedQueryIndex >= 0 && this.selectedQueryIndex < items.length) {
-                            e.preventDefault();
-                            items[this.selectedQueryIndex].click();
-                        }
-                    } else if (e.key === 'Escape') {
-                        this.hideQueryDropdown();
-                    }
+                    this.handleDropdownKeydown(
+                        e, 'query-results',
+                        () => this.selectedQueryIndex,
+                        (i) => { this.selectedQueryIndex = i; },
+                        () => this.hideQueryDropdown()
+                    );
                 });
 
                 document.addEventListener('click', (e) => {
@@ -1295,7 +1370,10 @@
             showAreaResults(results) {
                 const dropdown = document.getElementById('area-results');
                 dropdown.innerHTML = '';
-                
+
+                // Reset keyboard navigation
+                this.selectedAreaIndex = -1;
+
                 if (results.length === 0) {
                     dropdown.innerHTML = '<div class="dropdown-item">No results found</div>';
                 } else {
@@ -1315,6 +1393,7 @@
             
             hideDropdown() {
                 document.getElementById('area-results').classList.remove('active');
+                this.selectedAreaIndex = -1;
             }
             
             selectArea(area) {
@@ -1542,12 +1621,54 @@
             }
 
             /**
-             * Update visual selection in query dropdown for keyboard navigation
-             * @param {NodeList} items - Dropdown items
+             * Arrow/Enter/Tab/Escape keyboard navigation for a `.dropdown-item` list,
+             * shared by the area and query autocomplete dropdowns.
+             * @param {KeyboardEvent} e
+             * @param {string} dropdownId - Element id of the dropdown container
+             * @param {() => number} getIndex - Reads the currently selected item index (-1 = none)
+             * @param {(index: number) => void} setIndex - Writes the selected item index
+             * @param {() => void} hideFn - Hides this dropdown (also resets its index)
              */
-            updateQueryDropdownSelection(items) {
+            handleDropdownKeydown(e, dropdownId, getIndex, setIndex, hideFn) {
+                const dropdown = document.getElementById(dropdownId);
+                if (!dropdown.classList.contains('active')) {
+                    return;
+                }
+
+                const items = dropdown.querySelectorAll('.dropdown-item');
+                if (items.length === 0) {
+                    return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    const index = Math.min(getIndex() + 1, items.length - 1);
+                    setIndex(index);
+                    this.updateDropdownSelection(items, index);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    const index = Math.max(getIndex() - 1, 0);
+                    setIndex(index);
+                    this.updateDropdownSelection(items, index);
+                } else if (e.key === 'Enter' || e.key === 'Tab') {
+                    const index = getIndex();
+                    if (index >= 0 && index < items.length) {
+                        e.preventDefault();
+                        items[index].click();
+                    }
+                } else if (e.key === 'Escape') {
+                    hideFn();
+                }
+            }
+
+            /**
+             * Update visual selection in a dropdown for keyboard navigation
+             * @param {NodeList} items - Dropdown items
+             * @param {number} selectedIndex
+             */
+            updateDropdownSelection(items, selectedIndex) {
                 items.forEach((item, index) => {
-                    if (index === this.selectedQueryIndex) {
+                    if (index === selectedIndex) {
                         item.classList.add('selected');
                         item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                     } else {
@@ -1690,6 +1811,7 @@
                     const logPosition = Math.log(this.maxDistanceKm / 0.01) / Math.log(this.maxDistanceLimit / 0.01);
                     const percent = Math.max(0, Math.min(100, logPosition * 100));
                     document.getElementById('distance-cursor').style.left = percent + '%';
+                    document.getElementById('distance-cursor').setAttribute('aria-valuemax', String(this.maxDistanceLimit));
                     document.getElementById('max-km-label').textContent = `${this.maxDistanceLimit} km`;
                     this.updateSliderValues();
                     
