@@ -33,8 +33,9 @@ export class InundatorApp {
     floodWorker = null;
 
     // UI state
-    waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
     safetyMargin = CONFIG.dam.defaultSafetyMargin;
+    maxWaterLevel = null; // Actual flood water-level elevation, reported by the worker
+    damLevel = null; // Actual dam crest elevation used by the flood algorithm, reported by the worker
     searchTimeout = null;
     currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
     currentBounds = null; // Track current DEM bounds [west, south, east, north]
@@ -102,7 +103,9 @@ export class InundatorApp {
             } else if (e.data.debug) {
                 console.log('%c[Worker] ' + e.data.debug, 'color: blue');
             } else if (e.data.progress !== undefined) {
-                this.updateProgress(e.data.progress);
+                // Compose the worker's phase-relative flood progress (0-1) into
+                // the second half of the overall bar; DEM fetch owns the first half.
+                this.updateProgress(0.4 + e.data.progress * 0.55);
                 if (e.data.status) {
                     this.showStatus(e.data.status);
                 }
@@ -111,8 +114,14 @@ export class InundatorApp {
             } else if (e.data.needMoreDEM) {
                 this.handleDEMExpansionRequest(e.data);
             } else if (e.data.flooded) {
-                this.onFloodFillComplete(e.data.flooded, e.data.barriers);
+                this.onFloodFillComplete(e.data.flooded, e.data.barriers, e.data.maxWaterLevel, e.data.damLevel);
             }
+        });
+
+        this.floodWorker.addEventListener('error', (e) => {
+            console.error('Flood worker error:', e.message, e);
+            this.showMessage('Flood computation crashed: ' + e.message, 'error');
+            this.hideStatus();
         });
     }
 
@@ -329,6 +338,8 @@ export class InundatorApp {
         this.damPoints = [];
         this.damLine = null;
         this.crestElevation = null;
+        this.maxWaterLevel = null;
+        this.damLevel = null;
 
         this.visualization.clearAll();
 
@@ -388,6 +399,7 @@ export class InundatorApp {
         // Reset buffer to initial size for new computation
         this.currentBufferKm = CONFIG.dem.bufferKm;
 
+        this.updateProgress(0);
         this.showStatus('Fetching elevation data...');
 
         try {
@@ -396,7 +408,8 @@ export class InundatorApp {
 
             this.showStatus('Loading terrain data...');
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
-                this.updateProgress(progress);
+                // DEM fetch owns the first 40% of the overall bar
+                this.updateProgress(progress * 0.4);
             }, this.originTileBounds);
             this.demData = demData;
 
@@ -422,13 +435,20 @@ export class InundatorApp {
             throw new Error('Dam line outside DEM bounds');
         }
 
-        const effectiveCrest = this.crestElevation * this.waterLevel;
-
         // Pass resumeState if available (for continuation after DEM expansion)
         const message = {
             demData: demData,
             damCells: damCells,
-            crestElevation: effectiveCrest
+            config: {
+                maxIterations: CONFIG.flood.maxIterations,
+                maxReservoirAreaKm2: CONFIG.flood.maxReservoirAreaKm2,
+                edgeProximityThreshold: CONFIG.flood.edgeProximityThreshold,
+                layerCheckInterval: CONFIG.flood.layerCheckInterval,
+                progressUpdateInterval: CONFIG.performance.progressUpdateInterval,
+                maxDebugMessages: CONFIG.performance.maxWorkerDebugMessages,
+                safetyMargin: CONFIG.dam.floodSafetyMarginM,
+                noDataValue: CONFIG.dem.noDataValue
+            }
         };
 
         if (this.resumeState) {
@@ -501,7 +521,7 @@ export class InundatorApp {
             this.currentBounds = bounds; // Update tracked bounds
 
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
-                this.updateProgress(progress);
+                this.updateProgress(progress * 0.4);
             }, this.originTileBounds);
             this.demData = demData;
 
@@ -528,8 +548,14 @@ export class InundatorApp {
         }
     }
 
-    onFloodFillComplete(floodedCells, barrierCells) {
+    onFloodFillComplete(floodedCells, barrierCells, maxWaterLevel, damLevel) {
+        this.updateProgress(1);
         this.showStatus('Creating flood polygon...');
+
+        // Store the water level the worker actually flooded to (authoritative,
+        // computed from DEM terrain at the dam endpoints) for stats and export
+        this.maxWaterLevel = maxWaterLevel;
+        this.damLevel = damLevel;
 
         // Create flood polygon
         const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
@@ -552,7 +578,7 @@ export class InundatorApp {
                 floodedCells,
                 this.demData,
                 this.damLine,
-                this.crestElevation,
+                this.maxWaterLevel,
                 elapsedSeconds
             );
 
@@ -610,8 +636,8 @@ export class InundatorApp {
         };
 
         geoJSON.features[0].properties = {
-            crestElevation: this.crestElevation,
-            waterLevel: this.waterLevel,
+            damCrestElevationM: this.damLevel,
+            waterLevelM: this.maxWaterLevel,
             area: document.getElementById('stat-area').textContent,
             volume: document.getElementById('stat-volume').textContent,
             maxDepth: document.getElementById('stat-depth').textContent,

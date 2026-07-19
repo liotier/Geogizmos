@@ -22,7 +22,10 @@ const CELL_STATE = {
     BARRIER: 3         // Dam barrier (impassable)
 };
 
-// Worker configuration
+// Worker configuration - these are fallback defaults only.
+// The main thread sends its own CONFIG values (from config.js) with every job
+// so both threads always agree on the same numbers; see the merge in the
+// message handler below.
 const CONFIG = {
     maxIterations: 20000000,  // Allow for massive valley lakes up to 30km+
     maxDebugMessages: 100,
@@ -30,10 +33,8 @@ const CONFIG = {
     edgeProximityThreshold: 500,  // Expand early to avoid re-flooding (5km from edge at zoom 13)
     noDataValue: -9999,
     safetyMargin: 1.0,        // Meters below dam crest to stop flooding
-    minReservoirSize: 10,     // Minimum cells to be considered valid reservoir
     layerCheckInterval: 5000,  // Check for stagnation every N cells
-    maxReservoirAreaKm2: 500,  // Maximum reasonable reservoir area (safety limit)
-    areaSizeCheckInterval: 50000  // Check reservoir size every N iterations
+    maxReservoirAreaKm2: 1000  // Maximum reasonable reservoir area (safety limit)
 };
 
 // Cached dam geometry - calculated ONCE at start, reused on DEM expansions
@@ -180,28 +181,39 @@ class SimpleQueue {
 
 self.addEventListener('message', function (e) {
     try {
-        const { demData, damCells, crestElevation, resumeState } = e.data;
+        const { demData, damCells, config, resumeState } = e.data;
 
-        self.postMessage({ progress: 0.1 });
+        // Merge config sent by the main thread over the local defaults, so
+        // both threads always agree on iteration limits, thresholds, etc.
+        if (config) {
+            Object.assign(CONFIG, config);
+        }
+
+        // Phase-relative progress: flooding is just starting (0 = start of this phase)
+        self.postMessage({ progress: 0 });
 
         if (resumeState) {
             debugLog(`Worker v${WORKER_VERSION}: RESUMING from ${resumeState.iterations} iterations (${demData.width}x${demData.height} grid)`);
-            const result = resumeIncrementalFlood(demData, damCells, crestElevation, resumeState);
+            const result = resumeIncrementalFlood(demData, damCells, resumeState);
 
             if (result !== null) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
-                    barriers: Array.from(result.barriers)
+                    barriers: Array.from(result.barriers),
+                    damLevel: cachedDamGeometry ? cachedDamGeometry.damLevel : null,
+                    maxWaterLevel: cachedDamGeometry ? cachedDamGeometry.maxWaterLevel : null
                 });
             }
         } else {
-            debugLog(`Worker v${WORKER_VERSION}: FRESH START (${demData.width}x${demData.height} grid, crest: ${crestElevation.toFixed(1)}m)`);
-            const result = performIncrementalFlood(demData, damCells, crestElevation);
+            debugLog(`Worker v${WORKER_VERSION}: FRESH START (${demData.width}x${demData.height} grid)`);
+            const result = performIncrementalFlood(demData, damCells);
 
             if (result !== null) {
                 self.postMessage({
                     flooded: Array.from(result.flooded),
-                    barriers: Array.from(result.barriers)
+                    barriers: Array.from(result.barriers),
+                    damLevel: cachedDamGeometry ? cachedDamGeometry.damLevel : null,
+                    maxWaterLevel: cachedDamGeometry ? cachedDamGeometry.maxWaterLevel : null
                 });
             }
         }
@@ -218,7 +230,7 @@ self.addEventListener('message', function (e) {
  * Stops when water reaches dam crest minus safety margin
  * The side that stops growing (confined) is upstream
  */
-function performIncrementalFlood(demData, damCells, crestElevation) {
+function performIncrementalFlood(demData, damCells) {
     const { width, height, data } = demData;
 
     // Check if we already have cached dam geometry from a previous call
@@ -245,10 +257,10 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
         // New dam - calculate and cache geometry
         debugLog(`Calculating dam geometry for first time`);
 
-        const result = extendDamToMountainside(damCells, data, width, height, crestElevation);
+        const result = extendDamToMountainside(damCells, data, width, height);
         barriers = result.barriers;
         damLevel = result.damLevel;
-        maxWaterLevel = damLevel - 1.0;
+        maxWaterLevel = damLevel - CONFIG.safetyMargin;
 
         // Cache dam geometry for future DEM expansions
         // Store barrier as offsets from first dam cell
@@ -346,15 +358,23 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
             // Use running counters instead of scanning visited array
             const totalCells = leftSideCount + rightSideCount;
 
+            // Progress is phase-relative (0-1); the main thread composes it with
+            // the DEM-fetch phase into its own display range. There is no reliable
+            // way to know how close a flood is to completion (most runs stop via
+            // stagnation detection, not the iteration cap), so approximate it as
+            // how close the flooded area is to the safety limit - capped below 1
+            // since reaching the limit isn't the expected way to finish.
+            const cellAreaM2 = calculateCellArea(demData, damCells);
+            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
+            const progressFraction = Math.min(0.95, currentAreaKm2 / CONFIG.maxReservoirAreaKm2);
+
             debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${leftSideCount}, right: ${rightSideCount}`);
             self.postMessage({
-                progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
+                progress: progressFraction,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
 
             // Check if reservoir area exceeds reasonable limits (safety check for flat terrain)
-            const cellAreaM2 = calculateCellArea(demData, damCells);
-            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
             if (currentAreaKm2 > CONFIG.maxReservoirAreaKm2) {
                 debugLog(`Reservoir area (${currentAreaKm2.toFixed(1)} km²) exceeds maximum (${CONFIG.maxReservoirAreaKm2} km²) - stopping`);
                 self.postMessage({
@@ -577,7 +597,7 @@ function performIncrementalFlood(demData, damCells, crestElevation) {
  * Resume incremental flood from saved state after DEM expansion
  * This avoids restarting from scratch - just continues where we left off
  */
-function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) {
+function resumeIncrementalFlood(demData, damCells, resumeState) {
     const { width, height, data } = demData;
 
     debugLog(`Resuming flood: ${resumeState.leftSideCells.length} left, ${resumeState.rightSideCells.length} right, ${resumeState.queueCells.length} queued`);
@@ -660,15 +680,23 @@ function resumeIncrementalFlood(demData, damCells, crestElevation, resumeState) 
             // Use running counters instead of scanning visited array
             const totalCells = leftSideCount + rightSideCount;
 
+            // Progress is phase-relative (0-1); the main thread composes it with
+            // the DEM-fetch phase into its own display range. There is no reliable
+            // way to know how close a flood is to completion (most runs stop via
+            // stagnation detection, not the iteration cap), so approximate it as
+            // how close the flooded area is to the safety limit - capped below 1
+            // since reaching the limit isn't the expected way to finish.
+            const cellAreaM2 = calculateCellArea(demData, damCells);
+            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
+            const progressFraction = Math.min(0.95, currentAreaKm2 / CONFIG.maxReservoirAreaKm2);
+
             debugLog(`Flooding: ${totalCells.toLocaleString()} cells, queue: ${queue.length}, left: ${leftSideCount}, right: ${rightSideCount}`);
             self.postMessage({
-                progress: 0.1 + (iterations / CONFIG.maxIterations) * 0.8,
+                progress: progressFraction,
                 status: `Flooding: ${totalCells.toLocaleString()} cells`
             });
 
             // Check if reservoir area exceeds reasonable limits (safety check for flat terrain)
-            const cellAreaM2 = calculateCellArea(demData, damCells);
-            const currentAreaKm2 = (totalCells * cellAreaM2) / 1000000;
             if (currentAreaKm2 > CONFIG.maxReservoirAreaKm2) {
                 debugLog(`Reservoir area (${currentAreaKm2.toFixed(1)} km²) exceeds maximum (${CONFIG.maxReservoirAreaKm2} km²) - stopping`);
                 self.postMessage({
@@ -979,10 +1007,11 @@ function createDamBarrier(damCells, width, height) {
  * - Dam is level at height of highest extremity
  * - Extend only from lower extremity until hitting cell higher than dam level
  */
-function extendDamToMountainside(damCells, data, width, height, crestElevation) {
+function extendDamToMountainside(damCells, data, width, height) {
     if (damCells.length < 2) {
         debugLog('Dam too short to extend');
-        return createDamBarrier(damCells, width, height);
+        const barriers = createDamBarrier(damCells, width, height);
+        return { barriers, damLevel: data[damCells[0]] };
     }
 
     // Start with thickened dam barrier
@@ -1002,7 +1031,7 @@ function extendDamToMountainside(damCells, data, width, height, crestElevation) 
 
     if (len === 0) {
         debugLog('Dam has zero length');
-        return barriers;
+        return { barriers, damLevel: Math.max(data[firstCell], data[lastCell]) };
     }
 
     // Normalized direction vector

@@ -21,13 +21,23 @@ class TileDBCache {
     }
 
     async init() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.version);
+        return new Promise((resolve) => {
+            let request;
+            try {
+                request = indexedDB.open(this.dbName, this.version);
+            } catch (error) {
+                console.warn('IndexedDB unavailable, DEM tile caching disabled:', error);
+                resolve(null);
+                return;
+            }
 
-            request.onerror = () => reject(request.error);
+            request.onerror = () => {
+                console.warn('IndexedDB init failed, DEM tile caching disabled:', request.error);
+                resolve(null); // Continue without cache - callers must fall back to network
+            };
             request.onsuccess = () => {
                 this.db = request.result;
-                resolve();
+                resolve(this.db);
             };
 
             request.onupgradeneeded = (event) => {
@@ -41,37 +51,58 @@ class TileDBCache {
 
     async get(key) {
         await this.initPromise;
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readonly');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.get(key);
+        if (!this.db) return null;
 
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+        return new Promise((resolve) => {
+            try {
+                const transaction = this.db.transaction([this.storeName], 'readonly');
+                const store = transaction.objectStore(this.storeName);
+                const request = store.get(key);
+
+                request.onsuccess = () => resolve(request.result ?? null);
+                request.onerror = () => resolve(null);
+            } catch (error) {
+                console.warn('Tile cache get failed:', error);
+                resolve(null);
+            }
         });
     }
 
     async put(key, value) {
         await this.initPromise;
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.put(value, key);
+        if (!this.db) return false;
 
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
+        return new Promise((resolve) => {
+            try {
+                const transaction = this.db.transaction([this.storeName], 'readwrite');
+                const store = transaction.objectStore(this.storeName);
+                const request = store.put(value, key);
+
+                request.onsuccess = () => resolve(true);
+                request.onerror = () => resolve(false);
+            } catch (error) {
+                console.warn('Tile cache put failed:', error);
+                resolve(false);
+            }
         });
     }
 
     async clear() {
         await this.initPromise;
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.clear();
+        if (!this.db) return false;
 
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
+        return new Promise((resolve) => {
+            try {
+                const transaction = this.db.transaction([this.storeName], 'readwrite');
+                const store = transaction.objectStore(this.storeName);
+                const request = store.clear();
+
+                request.onsuccess = () => resolve(true);
+                request.onerror = () => resolve(false);
+            } catch (error) {
+                console.warn('Tile cache clear failed:', error);
+                resolve(false);
+            }
         });
     }
 }
@@ -364,7 +395,8 @@ export class ElevationService {
 
             loadedTiles++;
             if (progressCallback) {
-                progressCallback(loadedTiles / totalTiles * 0.5);
+                // Phase-relative progress (0-1); callers compose this into their own display range
+                progressCallback(loadedTiles / totalTiles);
             }
         }
 
@@ -450,7 +482,11 @@ export class ElevationService {
     async loadImageData(blob) {
         return new Promise((resolve, reject) => {
             const img = new Image();
+            const objectUrl = URL.createObjectURL(blob);
+
             img.onload = () => {
+                URL.revokeObjectURL(objectUrl);
+
                 const canvas = document.createElement('canvas');
                 canvas.width = CONFIG.dem.tileSize;
                 canvas.height = CONFIG.dem.tileSize;
@@ -463,8 +499,11 @@ export class ElevationService {
                 const imageData = ctx.getImageData(0, 0, CONFIG.dem.tileSize, CONFIG.dem.tileSize);
                 resolve(imageData);
             };
-            img.onerror = reject;
-            img.src = URL.createObjectURL(blob);
+            img.onerror = (error) => {
+                URL.revokeObjectURL(objectUrl);
+                reject(error);
+            };
+            img.src = objectUrl;
         });
     }
 

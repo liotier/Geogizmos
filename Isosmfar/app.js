@@ -211,6 +211,13 @@
                 return params.toString();
             },
 
+            // Keys that are always numeric/boolean; everything else (area, query,
+            // mode, palette, basemap) is kept as a plain string even if its value
+            // happens to look like a number or "true"/"false" (e.g. an area
+            // literally named "2000" must round-trip as text, not a number).
+            NUMERIC_KEYS: new Set(['lat', 'lng', 'zoom', 'radius', 'transparency', 'idwPower', 'heatBandwidth', 'coalesce']),
+            BOOLEAN_KEYS: new Set(['voronoi']),
+
             /**
              * Decodes visualization state from URL hash
              */
@@ -221,10 +228,9 @@
                 const params = new URLSearchParams(hash);
                 const state = {};
                 for (const [key, value] of params.entries()) {
-                    // Try to parse numbers
-                    if (!Number.isNaN(Number(value)) && value !== '') {
+                    if (this.NUMERIC_KEYS.has(key) && value !== '' && !Number.isNaN(Number(value))) {
                         state[key] = Number.parseFloat(value);
-                    } else if (value === 'true' || value === 'false') {
+                    } else if (this.BOOLEAN_KEYS.has(key)) {
                         state[key] = value === 'true';
                     } else {
                         state[key] = value;
@@ -410,25 +416,25 @@
                 // =================================================================
                 // Visualization Mode & Parameters
                 // =================================================================
-                // Load from URL state first, then localStorage, then defaults
-                const urlParams = urlState.decode();
-
-                this.visualizationMode = urlParams.mode ||
-                    storage.get(CONFIG.STORAGE_KEYS.MODE, 'distance');
+                // Initialize from localStorage/defaults only. loadStateFromURL(),
+                // called from init() before the map is created, applies any URL
+                // overrides on top of these - keeping URL parsing in one place
+                // avoids the two going out of sync (and dropping falsy overrides
+                // like transparency=0 or voronoi=false, which `||` would ignore).
+                this.visualizationMode = storage.get(CONFIG.STORAGE_KEYS.MODE, 'distance');
 
                 // Mode-specific parameters
-                this.idwPower = urlParams.idwPower || CONFIG.DEFAULT_IDW_POWER;
-                this.heatBandwidth = urlParams.heatBandwidth || CONFIG.DEFAULT_HEAT_BANDWIDTH;
+                this.idwPower = CONFIG.DEFAULT_IDW_POWER;
+                this.heatBandwidth = CONFIG.DEFAULT_HEAT_BANDWIDTH;
 
                 // Voronoi overlay state
-                this.showVoronoiBorders = urlParams.voronoi || false;
-                this.voronoiCoalesceKm = urlParams.coalesce || 0;
+                this.showVoronoiBorders = false;
+                this.voronoiCoalesceKm = 0;
 
                 // Visualization parameters
-                this.maxDistanceKm = urlParams.radius || 50;
+                this.maxDistanceKm = 50;
                 this.maxDistanceLimit = null;
-                this.transparency = urlParams.transparency ||
-                    storage.get(CONFIG.STORAGE_KEYS.TRANSPARENCY, CONFIG.DEFAULT_TRANSPARENCY);
+                this.transparency = storage.get(CONFIG.STORAGE_KEYS.TRANSPARENCY, CONFIG.DEFAULT_TRANSPARENCY);
                 this.computedMaxDistance = null;
 
                 // =================================================================
@@ -452,12 +458,10 @@
                 }, CONFIG.SLIDER_THROTTLE_MS);
 
                 // Basemap selection
-                this.currentBasemap = urlParams.basemap ||
-                    storage.get(CONFIG.STORAGE_KEYS.BASEMAP, 'standard');
+                this.currentBasemap = storage.get(CONFIG.STORAGE_KEYS.BASEMAP, 'standard');
 
-                // Current palette selection (loaded from URL/storage or default)
-                this.currentPalette = urlParams.palette ||
-                    storage.get(CONFIG.STORAGE_KEYS.PALETTE, 'blue');
+                // Current palette selection (loaded from storage or default)
+                this.currentPalette = storage.get(CONFIG.STORAGE_KEYS.PALETTE, 'blue');
 
                 this.init();
             }
@@ -1604,34 +1608,41 @@
                     this.showStatus('Searching for area...');
                     await new Promise(resolve => setTimeout(resolve, 50));
                     
-                    if (!this.selectedArea || !this.selectedArea.display_name.includes(areaName)) {
-                        const areaResponse = await fetch(
-                            `https://nominatim.openstreetmap.org/search?` +
-                            `format=jsonv2&q=${encodeURIComponent(areaName)}&` +
-                            `limit=1&polygon_geojson=1`
-                        );
-                        const areas = await areaResponse.json();
-                        
+                    if (!this.selectedArea || !this.selectedArea.display_name.toLowerCase().includes(areaName.toLowerCase())) {
+                        const areas = await retryWithBackoff(async () => {
+                            const response = await fetch(
+                                `${CONFIG.NOMINATIM_API_URL}?` +
+                                `format=jsonv2&q=${encodeURIComponent(areaName)}&` +
+                                `limit=1&polygon_geojson=1`
+                            );
+
+                            if (!response.ok) {
+                                throw new Error(`Nominatim API error: ${response.status} ${response.statusText}`);
+                            }
+
+                            return await response.json();
+                        });
+
                         if (areas.length === 0) {
                             throw new Error('Area not found');
                         }
-                        
+
                         this.selectedArea = areas[0];
-                        
+
                         // Check if we got the full geometry
                         if (!this.selectedArea.geojson) {
                             console.warn('No detailed boundary geometry received, will use bounding box');
                         }
                     }
-                    
-                    const areaId = 3600000000 + Number.parseInt(this.selectedArea.osm_id);
+
+                    const areaSelector = this.determineAreaSelector(this.selectedArea);
                     const boundary = this.selectedArea.geojson || this.makeBoundingBox(this.selectedArea.boundingbox);
-                    
+
                     const areaSizeKm2 = turf.area(boundary) / 1000000;
-                    
+
                     this.showStatus('Querying OSM features...');
-                    
-                    const features = await this.queryOSMFeatures(query, areaId);
+
+                    const features = await this.queryOSMFeatures(query, areaSelector);
                     
                     if (features.length === 0) {
                         throw new Error('No features found matching the query');
@@ -1758,14 +1769,41 @@
             }
             
             /**
+             * Determine how to select the query area in Overpass QL.
+             * Overpass area IDs are derived differently per OSM element type:
+             * relations use 3600000000+id, ways use 2400000000+id. Nodes (and
+             * anything else Nominatim might return) have no Overpass "area" at
+             * all, so fall back to a bounding-box filter instead.
+             * @param {Object} area - Nominatim result (osm_type, osm_id, boundingbox)
+             * @returns {{type: 'area', areaId: number} | {type: 'bbox', bbox: number[]}}
+             */
+            determineAreaSelector(area) {
+                const osmId = Number.parseInt(area.osm_id, 10);
+
+                if (area.osm_type === 'relation') {
+                    return { type: 'area', areaId: 3600000000 + osmId };
+                }
+                if (area.osm_type === 'way') {
+                    return { type: 'area', areaId: 2400000000 + osmId };
+                }
+
+                // Node or unknown type - no Overpass area concept, use bbox instead
+                const [minLat, maxLat, minLon, maxLon] = area.boundingbox.map(Number.parseFloat);
+                return { type: 'bbox', bbox: [minLat, minLon, maxLat, maxLon] }; // [south, west, north, east]
+            }
+
+            /**
              * Query OSM features using Overpass API with caching and retry logic
              * @param {string} query - Overpass QL query fragment
-             * @param {string} areaId - OSM area ID
+             * @param {{type: 'area', areaId: number} | {type: 'bbox', bbox: number[]}} areaSelector - From determineAreaSelector()
              * @returns {Promise<Array>} Array of features with lat/lon
              */
-            async queryOSMFeatures(query, areaId) {
+            async queryOSMFeatures(query, areaSelector) {
                 // Create cache key from query and area
-                const cacheKey = `overpass_${areaId}_${query}`;
+                const areaKeyPart = areaSelector.type === 'area'
+                    ? `area_${areaSelector.areaId}`
+                    : `bbox_${areaSelector.bbox.join(',')}`;
+                const cacheKey = `overpass_${areaKeyPart}_${query}`;
 
                 // Try cache first
                 const cachedData = await this.cache.get(cacheKey);
@@ -1774,15 +1812,31 @@
                     return cachedData;
                 }
 
-                // Build Overpass query
-                const overpassQuery = `
-                    [out:csv(::id,::lat,::lon)][timeout:${CONFIG.OVERPASS_TIMEOUT}];
-                    area(id:${areaId})->.a;
+                // Build the element-selection clause for the chosen area strategy
+                let selectionClause;
+                if (areaSelector.type === 'area') {
+                    selectionClause = `
+                    area(id:${areaSelector.areaId})->.a;
                     (
                         node(area.a)${query};
                         way(area.a)${query};
                         relation(area.a)${query};
-                    );
+                    );`;
+                } else {
+                    const [south, west, north, east] = areaSelector.bbox;
+                    const bbox = `${south},${west},${north},${east}`;
+                    selectionClause = `
+                    (
+                        node(${bbox})${query};
+                        way(${bbox})${query};
+                        relation(${bbox})${query};
+                    );`;
+                }
+
+                // Build Overpass query
+                const overpassQuery = `
+                    [out:csv(::id,::lat,::lon)][timeout:${CONFIG.OVERPASS_TIMEOUT}];
+                    ${selectionClause}
                     out center;
                 `;
 
@@ -1927,9 +1981,38 @@
                 this.areaBoundary = null;
             }
 
+            /**
+             * Uniformly sample `count` items from `features` without replacement
+             * (reservoir sampling, one pass, no bias toward Overpass result order)
+             */
+            sampleFeatures(features, count) {
+                const sample = features.slice(0, count);
+                for (let i = count; i < features.length; i++) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    if (j < count) {
+                        sample[j] = features[i];
+                    }
+                }
+                return sample;
+            }
+
             renderWebGL(features, boundary, bounds) {
                 // Clean up existing WebGL resources before creating new ones
                 this.cleanupWebGLResources();
+
+                // The GPU field shader has a hard cap on feature count (CONFIG.MAX_FEATURES).
+                // Beyond that, use a uniform random sample rather than silently taking the
+                // first N - Overpass results are spatially biased (grouped by type/location),
+                // so truncating produces a visibly wrong field. The point layer below still
+                // renders every feature regardless of this cap.
+                let fieldFeatures = features;
+                if (features.length > CONFIG.MAX_FEATURES) {
+                    fieldFeatures = this.sampleFeatures(features, CONFIG.MAX_FEATURES);
+                    this.showMessage(
+                        `Gradient uses a random sample of ${CONFIG.MAX_FEATURES.toLocaleString()} of ${features.length.toLocaleString()} features (all points are shown)`,
+                        'info'
+                    );
+                }
 
                 // Remove existing layers and sources
                 if (this.gradientFieldLayer) {
@@ -1960,7 +2043,13 @@
                 const visualizationMode = this.visualizationMode;
                 const idwPower = this.idwPower;
                 const heatBandwidth = this.heatBandwidth;
-                
+
+                // Ground distance per unit of normalized Mercator distance shrinks
+                // away from the equator by cos(latitude); compute it once for this
+                // area's center latitude instead of assuming the equatorial value.
+                const centerLat = (bounds[1] + bounds[3]) / 2;
+                const kmPerMercUnit = 40075.0 * Math.cos(centerLat * Math.PI / 180);
+
                 // Process boundary for clipping
                 const boundaryCoords = [];
                 if (boundary && boundary.coordinates) {
@@ -2021,7 +2110,7 @@
                 const gradientLayer = {
                     id: 'gradient-field',
                     type: 'custom',
-                    features: features,
+                    features: fieldFeatures,
                     bounds: bounds,
                     boundaryCoords: boundaryCoords,
                     maxDistanceKm: this.maxDistanceKm,
@@ -2030,7 +2119,8 @@
                     visualizationMode: visualizationMode,
                     idwPower: idwPower,
                     heatBandwidth: heatBandwidth,
-                    
+                    kmPerMercUnit: kmPerMercUnit,
+
                     onAdd: function(map, gl) {
                         // =========================================================
                         // WebGL VERSION DETECTION
@@ -2079,6 +2169,10 @@
                             uniform int u_mode; // 0=distance, 1=density, 2=idw, 3=heat
                             uniform float u_idwPower;
                             uniform float u_heatBandwidth;
+                            // km per unit of normalized Mercator distance at this area's
+                            // latitude (40075 * cos(lat)) - replaces a flat equator-only
+                            // constant so distances are correct away from the equator
+                            uniform float u_kmPerMercUnit;
                             varying vec2 v_pos;
                             
                             // Point in polygon test
@@ -2122,7 +2216,7 @@
                                 }
 
                                 // Pre-compute squared distance threshold to skip sqrt for out-of-range features
-                                float maxDistMerc = u_maxDistanceKm / 40000.0;
+                                float maxDistMerc = u_maxDistanceKm / u_kmPerMercUnit;
                                 float maxDistSq = maxDistMerc * maxDistMerc;
 
                                 if (u_mode == 0) {
@@ -2150,7 +2244,7 @@
                                         discard;
                                     }
 
-                                    float distKm = sqrt(minDistSq) * 40000.0;
+                                    float distKm = sqrt(minDistSq) * u_kmPerMercUnit;
                                     float normalized = 1.0 - (distKm / u_maxDistanceKm);
                                     vec4 color = texture2D(u_palette_texture, vec2(normalized, 0.5));
 
@@ -2176,7 +2270,7 @@
                                         float distSq = dx * dx + dy * dy;
 
                                         if (distSq < maxDistSq) {
-                                            float distKm = sqrt(distSq) * 40000.0;
+                                            float distKm = sqrt(distSq) * u_kmPerMercUnit;
                                             float weight = exp(-2.0 * pow(distKm / bandwidth, 2.0));
                                             density += weight;
                                         }
@@ -2216,7 +2310,7 @@
                                         float distSq = dx * dx + dy * dy;
 
                                         if (distSq < maxDistSq) {
-                                            float distKm = sqrt(distSq) * 40000.0;
+                                            float distKm = sqrt(distSq) * u_kmPerMercUnit;
                                             // Avoid division by zero at exact point locations
                                             if (distKm < 0.001) distKm = 0.001;
 
@@ -2255,7 +2349,7 @@
                                         float distSq = dx * dx + dy * dy;
 
                                         if (distSq < maxDistSq) {
-                                            float distKm = sqrt(distSq) * 40000.0;
+                                            float distKm = sqrt(distSq) * u_kmPerMercUnit;
                                             // Gaussian kernel
                                             float gaussian = exp(-0.5 * pow(distKm / bandwidth, 2.0));
                                             heat += gaussian;
@@ -2377,6 +2471,7 @@
                         this.modeLocation = gl.getUniformLocation(this.program, 'u_mode');
                         this.idwPowerLocation = gl.getUniformLocation(this.program, 'u_idwPower');
                         this.heatBandwidthLocation = gl.getUniformLocation(this.program, 'u_heatBandwidth');
+                        this.kmPerMercUnitLocation = gl.getUniformLocation(this.program, 'u_kmPerMercUnit');
                         this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
 
                         this.featureCount = maxFeatures;
@@ -2453,6 +2548,7 @@
                         gl.uniform1f(this.boundaryTextureSizeLocation, this.boundaryTextureSize);
                         gl.uniform1f(this.idwPowerLocation, this.idwPower);
                         gl.uniform1f(this.heatBandwidthLocation, this.heatBandwidth);
+                        gl.uniform1f(this.kmPerMercUnitLocation, this.kmPerMercUnit);
                         
                         let modeValue = 0;
                         if (this.visualizationMode === 'density') modeValue = 1;

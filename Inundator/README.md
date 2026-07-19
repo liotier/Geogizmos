@@ -11,7 +11,7 @@ Try it - it is live at https://liotier.github.io/Geogizmos/Inundator !
 ## Features
 
 - **Interactive Dam Drawing**: Click two points on the map to define a dam line
-- **Automatic Crest Elevation**: Calculates optimal dam height from terrain data with 95% fill level safety factor
+- **Automatic Crest Elevation**: The flood algorithm derives the dam crest from DEM terrain at the dam's endpoints, then floods to crest minus a configurable freeboard (1m by default)
 - **Physics-Based Flooding**: Simulates water accumulation following natural topography
 - **Dynamic DEM Expansion**: Automatically expands terrain data for massive valley lakes (up to 100km radius)
 - **Real-time Visualization**: See the reservoir extent on the map with semi-transparent water overlay
@@ -50,8 +50,8 @@ Inundator/
 
 When you draw a dam line across a valley, Inundator simulates the reservoir that would form behind it:
 
-1. **Dam Crest Calculation**: Analyzes terrain elevation along your dam line and calculates the optimal crest height (95% of maximum elevation for safety margin)
-2. **Dam Extension**: Extends the dam line perpendicular to the valley walls at terrain elevations above the crest, preventing water leakage around the sides
+1. **Dam Crest Calculation**: The dam crest elevation is the higher of the two DEM terrain elevations at the dam line's endpoints (the lower end is assumed to be extended up to this level by the dam structure)
+2. **Dam Extension**: Extends the dam line from its lower endpoint until it hits terrain higher than the crest, preventing water leakage around the sides
 3. **Flood Simulation**: Simulates water filling to a level 1 meter below the dam crest (safety freeboard), spreading across all terrain below this elevation
 4. **Upstream Selection**: Distinguishes between the confined upstream reservoir (what you want) and the potentially unbounded downstream river (which would run to the ocean)
 5. **Polygon Generation**: Converts the flooded grid cells into a smooth polygon using marching squares algorithm
@@ -297,11 +297,12 @@ Flood computation runs in a separate Web Worker thread:
 
 ## Configuration
 
-All tunable parameters are in `js/config.js`:
+All tunable parameters are in `js/config.js`, and are sent to the flood
+Web Worker with every job so both threads always agree on the same numbers:
 
 - **DEM Settings**: Initial buffer (10km), maximum buffer (100km), zoom levels, tile limits
-- **Flood Algorithm**: Iteration limits (20M), seed search radius, water body scoring weights, edge proximity detection
-- **Dam Parameters**: Safety factor (95% fill level), sampling intervals
+- **Flood Algorithm**: Iteration limit (20M), area safety limit (1000 km²), edge proximity threshold, stagnation-check interval
+- **Dam Parameters**: Flood freeboard below the computed dam crest (1m), sampling intervals
 - **Visualization**: Colors, opacity, simplification tolerance
 - **Map Settings**: Default location, basemaps, zoom limits
 
