@@ -143,7 +143,7 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
         } else if (boundary.type === 'MultiPolygon') {
             boundaryFeature = turf.multiPolygon(boundary.coordinates);
         }
-    } catch (e) {
+    } catch {
         // proceed without boundary clipping
     }
 
@@ -221,7 +221,7 @@ function computeVoronoi(features, bounds, boundary, voronoiCoalesceKm) {
                         }
                     }
                 }
-            } catch (e) {
+            } catch {
                 // skip problematic cell
             }
         }
