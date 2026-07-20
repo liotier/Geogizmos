@@ -1,0 +1,39 @@
+name: Clean Up Branch Preview
+
+on:
+  delete:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-preview:
+    # `delete` fires for both branch and tag deletions; only act on branches,
+    # and only on the claude/** branches that deploy-preview.yml deploys
+    if: github.event.ref_type == 'branch' && startsWith(github.event.ref, 'claude/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute safe branch name
+        id: extract_branch
+        run: |
+          SAFE_BRANCH=$(echo "${{ github.event.ref }}" | sed 's/[^a-zA-Z0-9-]/-/g')
+          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Check out gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Remove the deleted branch's preview directory
+        run: |
+          TARGET="preview/${{ steps.extract_branch.outputs.safe_branch }}"
+          if [ -d "$TARGET" ]; then
+            git rm -r --quiet "$TARGET"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "Remove preview for deleted branch ${{ github.event.ref }}"
+            git push
+          else
+            echo "No preview directory for ${{ github.event.ref }} - nothing to clean up"
+          fi

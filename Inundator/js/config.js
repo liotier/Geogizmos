@@ -3,6 +3,12 @@
  * All tunable parameters in one place
  */
 
+// Attribution strings, per each provider's requirements (contributors, linked).
+// Every basemap gets the elevation-data credit too, since flood computation
+// depends on the Terrarium DEM regardless of which basemap is selected.
+const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors';
+const ELEVATION_ATTRIBUTION = 'Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/data-sources.md" target="_blank">Mapzen terrain tiles</a> (SRTM, USGS, and others)';
+
 export const CONFIG = {
     // DEM Data Configuration
     dem: {
@@ -41,44 +47,31 @@ export const CONFIG = {
     },
 
     // Flood Algorithm Configuration
+    // These values are sent to the flood worker with every job so the worker
+    // never falls back to its own (possibly stale) local defaults.
     flood: {
-        // Maximum iterations for flood-fill (increased 10x for massive valley lakes)
+        // Maximum iterations for flood-fill (supports massive valley lakes)
         maxIterations: 20000000,
 
         // Maximum reasonable reservoir area (km²) - safety limit
         maxReservoirAreaKm2: 1000,
 
-        // Seed search radius (cells from dam)
-        seedSearchRadius: 2,
+        // Cells from a DEM edge before the worker requests more terrain data
+        edgeProximityThreshold: 500,
 
-        // Water body selection thresholds
-        selection: {
-            // Minimum cells for valid water body
-            minBodySize: 100,
-
-            // Maximum cells before considering downstream (increased 10x for massive reservoirs)
-            maxBodySize: 2000000,
-
-            // Scoring weights
-            elevationWeight: 2.0,
-            edgePenalty: 10000,
-            distancePenalty: 0.5,
-            smallSizePenalty: 1000,
-            largeSizePenalty: 2000
-        },
-
-        // Connectivity type (4 or 8)
-        connectivity: 4
+        // Check growth/stagnation/area every N iterations
+        layerCheckInterval: 5000
     },
 
     // Dam Configuration
     dam: {
-        // Default safety margin (meters below peak)
+        // Meters below the highest sampled point along the dam line;
+        // used only to gate the UI (has elevation data been fetched for this line?)
         defaultSafetyMargin: 5,
 
-        // Water level safety factor (0-1)
-        // 0.95 = 95% fill level (5% freeboard for safety)
-        waterLevelSafetyFactor: 0.95,
+        // Freeboard (meters) the flood algorithm keeps below the dam crest
+        // elevation it computes from DEM terrain at the dam endpoints
+        floodSafetyMarginM: 1.0,
 
         // Sample interval along dam line (meters)
         elevationSampleInterval: 10,
@@ -124,17 +117,17 @@ export const CONFIG = {
         basemaps: {
             topo: {
                 tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-                attribution: '© OpenTopoMap (CC-BY-SA)',
+                attribution: `Map data: ${OSM_ATTRIBUTION}, SRTM | Map display: © OpenTopoMap (CC-BY-SA) | ${ELEVATION_ATTRIBUTION}`,
                 maxzoom: 15
             },
             osm: {
                 tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                attribution: '© OpenStreetMap',
+                attribution: `${OSM_ATTRIBUTION} | ${ELEVATION_ATTRIBUTION}`,
                 maxzoom: 19
             },
             satellite: {
                 tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-                attribution: '© Esri',
+                attribution: `© Esri | ${ELEVATION_ATTRIBUTION}`,
                 maxzoom: 19
             }
         }
@@ -144,7 +137,7 @@ export const CONFIG = {
     geocoding: {
         nominatimUrl: 'https://nominatim.openstreetmap.org/search',
         searchLimit: 10,
-        searchDebounce: 300 // ms
+        searchDebounce: 500 // ms - light throttling of Nominatim requests while typing
     },
 
     // Performance Configuration
@@ -153,6 +146,6 @@ export const CONFIG = {
         maxWorkerDebugMessages: 200,
 
         // Progress update frequency
-        progressUpdateInterval: 5000 // iterations
+        progressUpdateInterval: 50000 // iterations
     }
 };

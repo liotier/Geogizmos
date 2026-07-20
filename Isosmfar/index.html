@@ -29,7 +29,7 @@
   "@type": "SoftwareApplication",
   "name": "Isosmfar",
   "url": "https://liotier.github.io/Geogizmos/Isosmfar/",
-  "image": "https://github.com/liotier/Geogizmos/blob/main/Isosmfar/Screenshot%202025-09-11%20at%2017-23-08%20Isosmfar%20-%20OSM%20Distance%20Fields.png",
+  "image": "https://raw.githubusercontent.com/liotier/Geogizmos/refs/heads/main/Isosmfar/Isosmfar_screenshot.jpg",
   "author": {
     "@type": "Person",
     "name": "Jean-Marc Liotier",
@@ -41,7 +41,6 @@
   },
   "applicationCategory": "MapApplication",
   "operatingSystem": "Web",
-  "softwareVersion": "1.4",
   "description": "Interactive web app to visualize distance and density fields as heatmaps from Openstreetmap data. Explore accessibility to schools, hospitals, transport, and more.",
   "offers": {
     "@type": "Offer",
@@ -55,7 +54,8 @@
     <title>Isosmfar: simple interactive iso-distance fields web application with Openstreetmap data</title>
 
     <!-- External Libraries -->
-    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet"
+          integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous" />
 
     <!-- Application Styles -->
     <link rel="stylesheet" href="styles.css">
@@ -74,11 +74,11 @@
                 <!-- Mode toggle (now with 4 options in 2x2 grid) -->
                 <div class="mode-toggle">
                     <label class="mode-toggle-label">Visualization mode</label>
-                    <div class="toggle-buttons">
-                        <div class="toggle-button active" data-mode="distance" data-tooltip="Shows how far away you are from the nearest feature. Darker colors mean closer proximity. Great for finding underserved areas.">Distance Field</div>
-                        <div class="toggle-button" data-mode="density" data-tooltip="Shows concentration of features in an area. Brighter colors indicate more features nearby. Perfect for identifying hotspots.">Density Field</div>
-                        <div class="toggle-button" data-mode="idw" data-tooltip="Inverse Distance Weighting: A classic GIS interpolation method. Creates smooth gradients based on weighted influence from all nearby points.">IDW</div>
-                        <div class="toggle-button" data-mode="heat" data-tooltip="Simulates heat diffusing from source points. Creates smooth, natural-looking heat maps commonly used in data visualization.">Heat Diffusion</div>
+                    <div class="toggle-buttons" role="group" aria-label="Visualization mode">
+                        <button type="button" class="toggle-button active" data-mode="distance" aria-pressed="true" data-tooltip="Shows how far away you are from the nearest feature. Darker colors mean closer proximity. Great for finding underserved areas.">Distance Field</button>
+                        <button type="button" class="toggle-button" data-mode="density" aria-pressed="false" data-tooltip="Shows concentration of features in an area. Brighter colors indicate more features nearby. Perfect for identifying hotspots.">Density Field</button>
+                        <button type="button" class="toggle-button" data-mode="idw" aria-pressed="false" data-tooltip="Inverse Distance Weighting: A classic GIS interpolation method. Creates smooth gradients based on weighted influence from all nearby points.">IDW</button>
+                        <button type="button" class="toggle-button" data-mode="heat" aria-pressed="false" data-tooltip="Simulates heat diffusing from source points. Creates smooth, natural-looking heat maps commonly used in data visualization.">Heat Diffusion</button>
                     </div>
                 </div>
 
@@ -242,10 +242,11 @@
         </div>
     </div>
 
-    <!-- External Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
+    <!-- External Libraries (pinned to exact versions with Subresource Integrity) -->
+    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"
+            integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.3.5/turf.min.js"
+            integrity="sha384-BQF91ViEyKh73QVOKMd0MfkJ7bWbu+o0g448Qfb7aP3HVPItiy/4UZ7OuTCUDKNi" crossorigin="anonymous"></script>
 
     <!-- Application Script -->
     <script src="app.js"></script>

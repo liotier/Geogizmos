@@ -10,6 +10,7 @@ import { PolygonGenerator } from './core/polygon-generator.js';
 import { Statistics } from './core/statistics.js';
 import { MapManager } from './ui/map-manager.js';
 import { Visualization } from './ui/visualization.js';
+import { retryWithBackoff } from './utils/retry.js';
 
 
 export class InundatorApp {
@@ -33,8 +34,9 @@ export class InundatorApp {
     floodWorker = null;
 
     // UI state
-    waterLevel = CONFIG.dam.waterLevelSafetyFactor; // Fixed at 95% (5% safety margin)
     safetyMargin = CONFIG.dam.defaultSafetyMargin;
+    maxWaterLevel = null; // Actual flood water-level elevation, reported by the worker
+    damLevel = null; // Actual dam crest elevation used by the flood algorithm, reported by the worker
     searchTimeout = null;
     currentBufferKm = CONFIG.dem.bufferKm; // Track current DEM buffer size
     currentBounds = null; // Track current DEM bounds [west, south, east, north]
@@ -102,17 +104,23 @@ export class InundatorApp {
             } else if (e.data.debug) {
                 console.log('%c[Worker] ' + e.data.debug, 'color: blue');
             } else if (e.data.progress !== undefined) {
-                this.updateProgress(e.data.progress);
+                // Compose the worker's phase-relative flood progress (0-1) into
+                // the second half of the overall bar; DEM fetch owns the first half.
+                this.updateProgress(0.4 + e.data.progress * 0.55);
                 if (e.data.status) {
                     this.showStatus(e.data.status);
                 }
-            } else if (e.data.incrementalUpdate) {
-                this.updateIncrementalVisualization(e.data.flooded, e.data.cellCount);
             } else if (e.data.needMoreDEM) {
                 this.handleDEMExpansionRequest(e.data);
             } else if (e.data.flooded) {
-                this.onFloodFillComplete(e.data.flooded, e.data.barriers);
+                this.onFloodFillComplete(e.data.flooded, e.data.barriers, e.data.maxWaterLevel, e.data.damLevel);
             }
+        });
+
+        this.floodWorker.addEventListener('error', (e) => {
+            console.error('Flood worker error:', e.message, e);
+            this.showMessage('Flood computation crashed: ' + e.message, 'error');
+            this.hideStatus();
         });
     }
 
@@ -216,14 +224,22 @@ export class InundatorApp {
     // Location search
     async searchLocation(query) {
         try {
-            const response = await fetch(
-                `${CONFIG.geocoding.nominatimUrl}?format=jsonv2&q=${encodeURIComponent(query)}&limit=${CONFIG.geocoding.searchLimit}`
-            );
+            const results = await retryWithBackoff(async () => {
+                const response = await fetch(
+                    `${CONFIG.geocoding.nominatimUrl}?format=jsonv2&q=${encodeURIComponent(query)}&limit=${CONFIG.geocoding.searchLimit}`
+                );
 
-            const results = await response.json();
+                if (!response.ok) {
+                    throw new Error(`Nominatim API error: ${response.status} ${response.statusText}`);
+                }
+
+                return await response.json();
+            });
+
             this.showLocationResults(results);
         } catch (error) {
             console.error('Location search error:', error);
+            this.showMessage('Location search failed: ' + error.message, 'error');
         }
     }
 
@@ -329,6 +345,8 @@ export class InundatorApp {
         this.damPoints = [];
         this.damLine = null;
         this.crestElevation = null;
+        this.maxWaterLevel = null;
+        this.damLevel = null;
 
         this.visualization.clearAll();
 
@@ -388,6 +406,7 @@ export class InundatorApp {
         // Reset buffer to initial size for new computation
         this.currentBufferKm = CONFIG.dem.bufferKm;
 
+        this.updateProgress(0);
         this.showStatus('Fetching elevation data...');
 
         try {
@@ -396,7 +415,8 @@ export class InundatorApp {
 
             this.showStatus('Loading terrain data...');
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
-                this.updateProgress(progress);
+                // DEM fetch owns the first 40% of the overall bar
+                this.updateProgress(progress * 0.4);
             }, this.originTileBounds);
             this.demData = demData;
 
@@ -422,13 +442,20 @@ export class InundatorApp {
             throw new Error('Dam line outside DEM bounds');
         }
 
-        const effectiveCrest = this.crestElevation * this.waterLevel;
-
         // Pass resumeState if available (for continuation after DEM expansion)
         const message = {
             demData: demData,
             damCells: damCells,
-            crestElevation: effectiveCrest
+            config: {
+                maxIterations: CONFIG.flood.maxIterations,
+                maxReservoirAreaKm2: CONFIG.flood.maxReservoirAreaKm2,
+                edgeProximityThreshold: CONFIG.flood.edgeProximityThreshold,
+                layerCheckInterval: CONFIG.flood.layerCheckInterval,
+                progressUpdateInterval: CONFIG.performance.progressUpdateInterval,
+                maxDebugMessages: CONFIG.performance.maxWorkerDebugMessages,
+                safetyMargin: CONFIG.dam.floodSafetyMarginM,
+                noDataValue: CONFIG.dem.noDataValue
+            }
         };
 
         if (this.resumeState) {
@@ -501,7 +528,7 @@ export class InundatorApp {
             this.currentBounds = bounds; // Update tracked bounds
 
             const demData = await this.elevationService.fetchDEMData(bounds, (progress) => {
-                this.updateProgress(progress);
+                this.updateProgress(progress * 0.4);
             }, this.originTileBounds);
             this.demData = demData;
 
@@ -516,20 +543,14 @@ export class InundatorApp {
         }
     }
 
-    updateIncrementalVisualization(floodedCells, cellCount) {
-        // Update status to show progress
-        this.showStatus(`Flooding: ${cellCount.toLocaleString()} cells...`);
-
-        // Create and display polygon
-        const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
-
-        if (polygon) {
-            this.visualization.visualizeFlood(polygon);
-        }
-    }
-
-    onFloodFillComplete(floodedCells, barrierCells) {
+    onFloodFillComplete(floodedCells, barrierCells, maxWaterLevel, damLevel) {
+        this.updateProgress(1);
         this.showStatus('Creating flood polygon...');
+
+        // Store the water level the worker actually flooded to (authoritative,
+        // computed from DEM terrain at the dam endpoints) for stats and export
+        this.maxWaterLevel = maxWaterLevel;
+        this.damLevel = damLevel;
 
         // Create flood polygon
         const polygon = PolygonGenerator.createFloodPolygon(floodedCells, this.demData);
@@ -552,7 +573,7 @@ export class InundatorApp {
                 floodedCells,
                 this.demData,
                 this.damLine,
-                this.crestElevation,
+                this.maxWaterLevel,
                 elapsedSeconds
             );
 
@@ -610,8 +631,8 @@ export class InundatorApp {
         };
 
         geoJSON.features[0].properties = {
-            crestElevation: this.crestElevation,
-            waterLevel: this.waterLevel,
+            damCrestElevationM: this.damLevel,
+            waterLevelM: this.maxWaterLevel,
             area: document.getElementById('stat-area').textContent,
             volume: document.getElementById('stat-volume').textContent,
             maxDepth: document.getElementById('stat-depth').textContent,
@@ -655,7 +676,11 @@ export class InundatorApp {
     }
 
     showMessage(text, type = 'info') {
-        this.messagesEl.innerHTML = `<div class="message ${type}-message">${text}</div>`;
+        this.messagesEl.innerHTML = '';
+        const div = document.createElement('div');
+        div.className = `message ${type}-message`;
+        div.textContent = text;
+        this.messagesEl.appendChild(div);
 
         setTimeout(() => {
             this.messagesEl.innerHTML = '';

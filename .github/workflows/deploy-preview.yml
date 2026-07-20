@@ -34,35 +34,47 @@ jobs:
           mkdir -p deploy/preview/${{ steps.extract_branch.outputs.safe_branch }}
 
           # Copy all project files to the preview directory
-          rsync -av --exclude='.git' --exclude='.github' --exclude='deploy' . deploy/preview/${{ steps.extract_branch.outputs.safe_branch }}/
+          rsync -av --exclude='.git' --exclude='.github' --exclude='deploy' --exclude='node_modules' . deploy/preview/${{ steps.extract_branch.outputs.safe_branch }}/
+
+          # List existing preview directories from the live gh-pages branch (if
+          # any) so the index reflects every active preview, not just this one
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          EXISTING_PREVIEWS=""
+          if git rev-parse --verify origin/gh-pages >/dev/null 2>&1; then
+            EXISTING_PREVIEWS=$(git ls-tree -d --name-only origin/gh-pages:preview 2>/dev/null || true)
+          fi
+          ALL_PREVIEWS=$(printf '%s\n%s\n' "$EXISTING_PREVIEWS" "${{ steps.extract_branch.outputs.safe_branch }}" | sed '/^$/d' | sort -u)
 
           # Create preview index page (do NOT create root index to avoid overwriting production)
-          cat > deploy/preview/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-              <title>Geogizmos Preview Deployments</title>
-              <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-                  h1 { color: #2c3e50; }
-                  ul { list-style: none; padding: 0; }
-                  li { padding: 10px; border-bottom: 1px solid #ddd; }
-                  a { color: #3498db; text-decoration: none; font-size: 18px; }
-                  a:hover { text-decoration: underline; }
-              </style>
-          </head>
-          <body>
-              <h1>🚀 Geogizmos Preview Deployments</h1>
-              <p>Active preview deployment:</p>
-              <ul>
-                  <li><a href="${{ steps.extract_branch.outputs.safe_branch }}/Isosmfar/">${{ steps.extract_branch.outputs.safe_branch }}</a></li>
-              </ul>
-          </body>
-          </html>
-          EOF
+          {
+            echo '<!DOCTYPE html>'
+            echo '<html>'
+            echo '<head>'
+            echo '    <title>Geogizmos Preview Deployments</title>'
+            echo '    <style>'
+            echo "        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }"
+            echo '        h1 { color: #2c3e50; }'
+            echo '        ul { list-style: none; padding: 0; }'
+            echo '        li { padding: 10px; border-bottom: 1px solid #ddd; }'
+            echo '        li .branch { font-weight: 600; display: block; margin-bottom: 4px; }'
+            echo '        a { color: #3498db; text-decoration: none; margin-right: 16px; }'
+            echo '        a:hover { text-decoration: underline; }'
+            echo '    </style>'
+            echo '</head>'
+            echo '<body>'
+            echo '    <h1>🚀 Geogizmos Preview Deployments</h1>'
+            echo '    <ul>'
+            while IFS= read -r branch; do
+              [ -z "$branch" ] && continue
+              echo "        <li><span class=\"branch\">$branch</span><a href=\"$branch/Inundator/\">Inundator</a><a href=\"$branch/Isosmfar/\">Isosmfar</a></li>"
+            done <<< "$ALL_PREVIEWS"
+            echo '    </ul>'
+            echo '</body>'
+            echo '</html>'
+          } > deploy/preview/index.html
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./deploy
@@ -76,7 +88,9 @@ jobs:
           script: |
             const branchName = '${{ steps.extract_branch.outputs.branch }}';
             const safeBranch = '${{ steps.extract_branch.outputs.safe_branch }}';
-            const previewUrl = 'https://${{ github.repository_owner }}.github.io/Geogizmos/preview/' + safeBranch + '/Isosmfar/';
+            const previewBase = 'https://${{ github.repository_owner }}.github.io/Geogizmos/preview/' + safeBranch + '/';
+            const inundatorUrl = previewBase + 'Inundator/';
+            const isosmfarUrl = previewBase + 'Isosmfar/';
 
             // Find PR for this branch
             const { data: pulls } = await github.rest.pulls.list({
@@ -102,7 +116,8 @@ jobs:
               );
 
               const commentBody = '## 🚀 Preview Deployment Ready!\n\n' +
-                '**Preview URL:** ' + previewUrl + '\n\n' +
+                '**Inundator:** ' + inundatorUrl + '\n\n' +
+                '**Isosmfar:** ' + isosmfarUrl + '\n\n' +
                 '**Branch:** `' + branchName + '`\n\n' +
                 'This preview will update automatically with each push to this branch.';
 
