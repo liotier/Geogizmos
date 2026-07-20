@@ -17,9 +17,10 @@ I love Openstreetmap !
   **No installation, no sign-up, no limitations.**
   Works directly in your browser.
 
-- **Progressive Web App**
-  Install as a standalone app on any device.
-  **Works offline** after first load – cached for instant access anywhere.
+- **Installable**
+  Add to home screen on mobile/desktop for a standalone app window.
+  Cached query results and preferences load instantly on return visits – but
+  a new query or area still needs a network connection.
 
 - **Share your visualizations**
   Every parameter encoded in the URL – copy and share exact visualizations with colleagues.
@@ -82,40 +83,41 @@ Isosmfar showcases several sophisticated web development techniques:
 - **Throttled rendering** at 60fps for smooth slider interactions
 - **Debounced operations** preventing excessive recomputation during user input
 - **Texture sampling** for both feature positions and color palettes
-- **Dynamic level-of-detail** – processes only visible area at current zoom
 - **Deduplication** of overlapping features to prevent redundant calculations
 - **Parallel processing** – fragment shader computes distances to all features simultaneously
 
 ### Advanced Caching & Resilience
-- **IndexedDB caching layer** storing Overpass API results for 7 days
+- **IndexedDB caching layer** storing Overpass API results for 7 days – instant reloads for repeat queries
 - **Automatic retry with exponential backoff** (1s, 2s, 4s delays) for failed API calls
-- **Service Worker implementation** for offline functionality and instant loading
 - **Smart cache invalidation** based on configurable expiration policies
 - Reduced API load while maintaining fresh data
 
 ### Robust Architecture
-- **ES6 modular design** with clean separation of concerns
+- **Single-file application** (`app.js`) plus a dedicated Web Worker for Voronoi computation
 - **Centralized configuration** with named constants (no magic numbers)
 - **Promise-based async operations** for smooth API interactions
 - **Comprehensive error handling** with user-friendly error messages
 - **Debounced search** preventing excessive Nominatim API calls
 - **Canvas preservation** for reliable PNG exports with `preserveDrawingBuffer`
-- **Progressive Web App** architecture with manifest and service worker
+- **Installable PWA** via a web app manifest (no service worker - see [Deployment](#-deployment))
 
 ## 🔧 Technology Stack
 
 - **JavaScript (ES6+)** – modern language features
 - **WebGL 2.0/1.0** – hardware-accelerated graphics rendering with adaptive capability detection
-- **[MapLibre GL JS](https://maplibre.org/) v5** – high-performance map display
-- **[Turf.js](https://turfjs.org/) v7** – spatial analysis and area calculations
-- **[D3-Delaunay](https://d3js.org/d3-delaunay/voronoi)** – Voronoi diagram generation
+- **[MapLibre GL JS](https://maplibre.org/) v5.24.0** – high-performance map display
+- **[Turf.js](https://turfjs.org/) v7.3.5** – spatial analysis and area calculations
+- **[D3-Delaunay](https://d3js.org/d3-delaunay/voronoi) v6.0.4** – Voronoi diagram generation (runs in a Web Worker)
 - **[Overpass API](https://overpass-api.de/)** – OSM feature queries
 - **[Nominatim](https://nominatim.org/)** – geocoding and area search
 - **Custom GLSL Shaders** – GPU-based distance field computation
 - **IndexedDB** – local caching of API results
-- **Service Workers** – offline functionality and resource caching
 - **Local Storage** – user preference persistence
 - **URL State Management** – shareable visualization links
+
+All CDN dependencies are pinned to exact versions with Subresource Integrity
+hashes (worker `importScripts` are pinned to exact versions only, since
+`importScripts` doesn't support SRI).
 
 ## 📖 How It Works
 
@@ -142,7 +144,6 @@ Isosmfar showcases several sophisticated web development techniques:
 5. **Export & sharing**
    MapLibre's canvas captured with proper WebGL context preservation for pixel-perfect PNG exports.
    Copy URL to share exact visualization with all parameters preserved.
-   Works offline after first load thanks to service worker caching.
 
 ## 🎨 Advanced Features
 
@@ -152,7 +153,7 @@ Isosmfar showcases several sophisticated web development techniques:
 - **URL state sharing**: All visualization parameters encoded in URL hash for instant sharing with colleagues
 - **Persistent preferences**: Color palette, basemap, and mode choices remembered across sessions
 - **Intelligent caching**: Query results cached in IndexedDB for 7 days – repeat queries load instantly
-- **Offline capability**: Full functionality after first load thanks to Progressive Web App architecture
+- **Offline-friendly caching**: Cached query results, preferences, and static assets load instantly on return visits; a new query or area still requires a connection
 - **Resilient API access**: Automatic retry with exponential backoff handles temporary network issues
 - **Performance throttling**: Slider interactions throttled at 60fps for smooth, responsive UI
 
@@ -163,21 +164,22 @@ Since Isosmfar is a static web application, deployment is trivial:
 - Host on GitHub Pages, Netlify, or any static hosting service
 - Embed in existing applications as an iframe
 - Fork and customize for domain-specific use cases
-- **Install as PWA** – add to home screen on mobile/desktop for offline access
+- **Install as PWA** – add to home screen on mobile/desktop for a standalone app window
 - For development, serve with any local HTTP server (e.g. `python -m http.server`)
 
 **No server infrastructure required** – just static file hosting and access to public Openstreetmap services.
 
-> **Note:** Isosmfar is fundamentally dependent on online services: map tiles, the Overpass API for OSM queries, and Nominatim for geocoding. The PWA offline mode preserves previously cached query results and app assets between sessions, but a working internet connection is required for any new query or area search.
+> **Note:** Isosmfar is fundamentally dependent on online services: map tiles, the Overpass API for OSM queries, and Nominatim for geocoding. There is no offline mode - IndexedDB and localStorage make *repeat* queries and preferences load instantly between sessions, but a working internet connection is required for any new query or area search, and for the map tiles themselves.
 
-### Offline Usage
+### Caching, Not Offline Use
 
-After the first load, Isosmfar works completely offline thanks to:
-- Service worker caching all static assets
-- IndexedDB storing recent query results
-- LocalStorage preserving user preferences
+Isosmfar has no service worker, so it does not work offline. What it does cache, between sessions:
+- IndexedDB storing recent Overpass query results (7 days)
+- LocalStorage preserving palette, basemap, and mode preferences
 
-Perfect for field work or areas with unreliable connectivity!
+This makes repeat visits and re-running a recent query fast, even on a slow
+connection, but every visualization still starts with live requests to
+Overpass and Nominatim.
 
 ## 📜 License
 

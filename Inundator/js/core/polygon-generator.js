@@ -19,7 +19,7 @@ export class PolygonGenerator {
         console.log(`Creating flood polygon from ${floodedCells.length} flooded cells, grid size: ${width}x${height}`);
 
         // Create binary grid for marching squares
-        const values = new Array(width * height).fill(0);
+        const values = new Uint8Array(width * height);
 
         for (const cell of floodedCells) {
             if (cell >= 0 && cell < width * height) {
@@ -43,50 +43,39 @@ export class PolygonGenerator {
             return null;
         }
 
-        // Extract all rings
-        const allRings = [];
+        // Normalize to an array of polygons, each an array of rings (first
+        // ring is the exterior, remaining rings are holes) - this preserves
+        // islands, multiple disconnected arms, and holes instead of
+        // collapsing everything down to a single largest ring.
+        const pixelPolygons = contour.type === 'MultiPolygon' ? contour.coordinates : [contour.coordinates];
 
-        if (contour.type === 'MultiPolygon') {
-            for (const polygon of contour.coordinates) {
-                for (const ring of polygon) {
-                    if (ring && ring.length > 2) {
-                        allRings.push(ring);
-                    }
-                }
+        const geoPolygons = [];
+        for (const polygon of pixelPolygons) {
+            const geoRings = [];
+            for (const ring of polygon) {
+                if (!ring || ring.length <= 2) continue;
+                const geoRing = this.transformRingToGeo(ring, zoom, tileBounds, width, height, minX, minY);
+                if (geoRing) geoRings.push(geoRing);
             }
-        } else {
-            for (const ring of contour.coordinates) {
-                if (ring && ring.length > 2) {
-                    allRings.push(ring);
-                }
-            }
+            // A polygon needs at least a valid exterior ring to be kept
+            if (geoRings.length > 0) geoPolygons.push(geoRings);
         }
 
-        if (allRings.length === 0) {
-            console.log('No valid rings found');
-            return null;
-        }
-
-        // Transform to geographic coordinates
-        const geoRings = this.transformRingsToGeo(allRings, zoom, tileBounds, width, height, minX, minY);
-
-        if (geoRings.length === 0) {
+        if (geoPolygons.length === 0) {
             console.log('No valid geographic rings created');
             return null;
         }
 
-        // Take largest ring
-        geoRings.sort((a, b) => b.length - a.length);
+        const totalRings = geoPolygons.reduce((n, p) => n + p.length, 0);
+        console.log(`Created ${geoPolygons.length} geographic polygon(s), ${totalRings} ring(s) total`);
 
-        console.log(`Created ${geoRings.length} geographic rings, using largest with ${geoRings[0].length} points`);
-
-        // Create GeoJSON polygon
+        // Create GeoJSON MultiPolygon - keeps every part of the flood extent
         const polygon = {
             type: 'Feature',
             properties: {},
             geometry: {
-                type: 'Polygon',
-                coordinates: [geoRings[0]]
+                type: 'MultiPolygon',
+                coordinates: geoPolygons
             }
         };
 
@@ -100,13 +89,14 @@ export class PolygonGenerator {
 
             console.log('Polygon area:', (area / 1000000).toFixed(2), 'km²');
 
-            // Simplify if too complex
-            if (geoRings[0].length > CONFIG.visualization.maxPolygonPoints) {
+            // Simplify if any ring is still too complex after per-ring subsampling
+            const maxRingLength = Math.max(...geoPolygons.flatMap(p => p.map(r => r.length)));
+            if (maxRingLength > CONFIG.visualization.maxPolygonPoints) {
                 const simplified = globalThis.turf.simplify(polygon, {
                     tolerance: CONFIG.visualization.simplificationTolerance,
                     highQuality: true
                 });
-                console.log('Simplified from', geoRings[0].length, 'to', simplified.geometry.coordinates[0].length, 'points');
+                console.log('Simplified polygon geometry (longest ring was', maxRingLength, 'points)');
                 return simplified;
             }
         } catch (e) {
@@ -118,65 +108,59 @@ export class PolygonGenerator {
     }
 
     /**
-     * Transform pixel rings to geographic coordinates
+     * Transform one pixel-space ring to geographic coordinates, subsampling
+     * to CONFIG.visualization.maxPolygonPoints and closing the ring.
+     * Returns null if the ring ends up degenerate.
      */
-    static transformRingsToGeo(rings, zoom, tileBounds, width, height, minX, minY) {
+    static transformRingToGeo(ring, zoom, tileBounds, width, height, minX, minY) {
         const [tileWest, tileNorth] = tileBounds;
         const n = Math.pow(2, zoom);
-        const geoRings = [];
 
         // Calculate origin tile coordinates from minX/minY offsets
         const originTileWest = tileWest - minX / CONFIG.dem.tileSize;
         const originTileNorth = tileNorth - minY / CONFIG.dem.tileSize;
 
-        for (const ring of rings) {
-            const geoRing = [];
-            const step = Math.max(1, Math.floor(ring.length / CONFIG.visualization.maxPolygonPoints));
+        const geoRing = [];
+        const step = Math.max(1, Math.floor(ring.length / CONFIG.visualization.maxPolygonPoints));
 
-            for (let i = 0; i < ring.length; i += step) {
-                const point = ring[i];
-                if (!point || point.length < 2) continue;
+        for (let i = 0; i < ring.length; i += step) {
+            const point = ring[i];
+            if (!point || point.length < 2) continue;
 
-                let x = point[0];
-                let y = point[1];
+            const x = point[0];
+            const y = point[1];
 
-                // Validate array coordinates
-                if (Number.isNaN(x) || Number.isNaN(y) || x < 0 || x > width || y < 0 || y > height) {
-                    continue;
-                }
-
-                // Convert array coordinates to logical grid coordinates (can be negative)
-                const gridX = x + minX;
-                const gridY = y + minY;
-
-                // Convert grid to tile coordinates
-                const tileX = originTileWest + (gridX / CONFIG.dem.tileSize);
-                const tileY = originTileNorth + (gridY / CONFIG.dem.tileSize);
-
-                // Convert tile to lng/lat
-                const lng = (tileX / n) * 360 - 180;
-                const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
-
-                if (!Number.isNaN(lng) && !Number.isNaN(lat) && Number.isFinite(lng) && Number.isFinite(lat)) {
-                    geoRing.push([lng, lat]);
-                }
+            // Validate array coordinates
+            if (Number.isNaN(x) || Number.isNaN(y) || x < 0 || x > width || y < 0 || y > height) {
+                continue;
             }
 
-            // Close ring if needed
-            if (geoRing.length > 2) {
-                const first = geoRing[0];
-                const last = geoRing[geoRing.length - 1];
+            // Convert array coordinates to logical grid coordinates (can be negative)
+            const gridX = x + minX;
+            const gridY = y + minY;
 
-                if (first[0] !== last[0] || first[1] !== last[1]) {
-                    geoRing.push([first[0], first[1]]);
-                }
+            // Convert grid to tile coordinates
+            const tileX = originTileWest + (gridX / CONFIG.dem.tileSize);
+            const tileY = originTileNorth + (gridY / CONFIG.dem.tileSize);
 
-                if (geoRing.length >= CONFIG.visualization.minPolygonPoints) {
-                    geoRings.push(geoRing);
-                }
+            // Convert tile to lng/lat
+            const lng = (tileX / n) * 360 - 180;
+            const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
+
+            if (!Number.isNaN(lng) && !Number.isNaN(lat) && Number.isFinite(lng) && Number.isFinite(lat)) {
+                geoRing.push([lng, lat]);
             }
         }
 
-        return geoRings;
+        if (geoRing.length <= 2) return null;
+
+        // Close ring if needed
+        const first = geoRing[0];
+        const last = geoRing[geoRing.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) {
+            geoRing.push([first[0], first[1]]);
+        }
+
+        return geoRing.length >= CONFIG.visualization.minPolygonPoints ? geoRing : null;
     }
 }
